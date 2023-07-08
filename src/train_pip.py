@@ -130,15 +130,6 @@ def evaluate(epoch, model, eval_data, rouge_eval, output_dir, config, mode, show
     
     return eval_scores, eval_outputs
 
-def resolve_dec_prefix(prefix):
-    key = prefix[0]
-    size = key.size()
-    value = prefix[1]
-    
-    key = key.unsqueeze(0).expand(config.num_beams,-1, -1, -1, -1, -1).reshape(config.num_beams * size[0], size[1], size[2], size[3], size[4])
-    value = value.unsqueeze(0).expand(config.num_beams,-1, -1, -1, -1, -1).reshape(config.num_beams * size[0], size[1], size[2], size[3], size[4])
-    return (key, value)
-
 def evaluate_pip(epoch, model, eval_data, rouge_eval, output_dir, config, mode, show=True):
     model.eval()
     avg_loss = 0.0
@@ -152,13 +143,8 @@ def evaluate_pip(epoch, model, eval_data, rouge_eval, output_dir, config, mode, 
             tgt_sents = [eval_data[i]["tgt_sent"] for i in eval_idxs]
             tgt_synts = [eval_data[i]["tgt_synt"] for i in eval_idxs]
             
-            if config.model_type == "prompt":
-                enc_idxs, prefix_inputs, enc_attn, prefix_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-                prefix_inputs = prefix_inputs.to(device)
-                prefix_attn = prefix_attn.to(device)
-            elif config.model_type == "pip":
-                assert config.prefix_type in ["attention0", "ptuning"]
-                enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
+            assert config.prefix_type in ["attention0", "ptuning"]
+            enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
                   
             enc_idxs = enc_idxs.to(device)
             enc_attn = enc_attn.to(device)
@@ -166,23 +152,15 @@ def evaluate_pip(epoch, model, eval_data, rouge_eval, output_dir, config, mode, 
             dec_attn = dec_attn.to(device)
             lbl_idxs = lbl_idxs.to(device)
 
-            if config.model_type == "pip":
-                for key in prefix_dict.keys():
-                    prefix_dict[key][0].to(device)
-                    prefix_dict[key][1].to(device)
+            for key in prefix_dict.keys():
+                prefix_dict[key][0].to(device)
+                prefix_dict[key][1].to(device)
             
             # foward pass
-            if config.model_type == "prompt":
-                loss = model(enc_idxs, prefix_inputs.to(torch.long), enc_attn, prefix_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-            elif config.model_type == "pip":
-                loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-
+            loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
             avg_loss += loss.item()
 
-            if config.model_type == "prompt":
-                outputs = model.module.generate(enc_idxs, prefix_inputs.to(torch.long), enc_attn, prefix_attn, prefix_dict)
-            elif config.model_type in ["pip", "prefix_reg"]:
-                outputs = model.module.generate(enc_idxs, enc_attn, prefix_dict, config.num_beams)
+            outputs = model.module.generate(enc_idxs, enc_attn, prefix_dict, config.num_beams)
             print('outputs', outputs[0])
             eval_outputs.extend(outputs)
             
@@ -231,7 +209,6 @@ def evaluate_pip(epoch, model, eval_data, rouge_eval, output_dir, config, mode, 
     
     return eval_scores, eval_outputs
 
-assert config.pretrained_model == "facebook/bart-base"
 # initialize tokenizer     
 tokenizer = BartTokenizer.from_pretrained(config.pretrained_model, cache_dir=config.cache_dir)
 tokenizer.add_tokens([config.sep_token])
@@ -417,18 +394,12 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
         
         # forward model
         # loss = model(src_sents, src_synts, tgt_synts, tgt_sents)
-        if config.model_type == "prompt":
-            loss = model(enc_idxs, prefix_inputs.to(torch.long), enc_attn, prefix_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-        elif config.pretrained_model == "facebook/bart-base" and config.model_type in ["pip", "prefix_reg"]:
-            if config.dec == False:
-                loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-            else:
-                loss = model(enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-            # loss, prefix_loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict)
-            # loss = loss.sum() + prefix_loss.sum() * 1000
-
-        elif config.pretrained_model == "gpt2":
-            loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix).sum()
+        if config.dec == False:
+            loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
+        else:
+            loss = model(enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
+        # loss, prefix_loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict)
+        # loss = loss.sum() + prefix_loss.sum() * 1000
 
         avg_loss += loss.item()
         prefix_optimizer.zero_grad()

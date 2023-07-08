@@ -57,14 +57,6 @@ def run_multi_bleu(input_file, reference_file):
     bleu = float(bleu_output.strip().split("\n")[-1].split(",")[0].split("=")[1][1:])
     return bleu
 
-def resolve_dec_prefix(prefix):
-    key = prefix[0]
-    size = key.size()
-    value = prefix[1]
-    
-    key = key.unsqueeze(0).expand(config.num_beams,-1, -1, -1, -1, -1).reshape(config.num_beams * size[0], size[1], size[2], size[3], size[4])
-    value = value.unsqueeze(0).expand(config.num_beams,-1, -1, -1, -1, -1).reshape(config.num_beams * size[0], size[1], size[2], size[3], size[4])
-    return (key, value)
 
 def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, mode, show=True):
     model.eval()
@@ -110,20 +102,13 @@ def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, 
                 loss = model(enc_idxs, prefix_inputs.to(torch.long), enc_attn, prefix_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
             elif config.pretrained_model == "facebook/bart-base" and config.model_type in ["pip", "prefix_reg"]:
                 loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-            elif config.pretrained_model == "gpt2":
-                loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix).sum()
 
             avg_loss += loss.item()
-
-            # prefix_dict["decoder_prefix"] = resolve_dec_prefix(prefix_dict["decoder_prefix"])
-            # prefix_dict["cross_prefix"] = resolve_dec_prefix(prefix_dict["cross_prefix"])
 
             if config.model_type == "prompt":
                 outputs = model.module.generate(enc_idxs, prefix_inputs.to(torch.long), enc_attn, prefix_attn, prefix_dict)
             elif config.pretrained_model == "facebook/bart-base" and config.model_type in ["pip", "prefix_reg"]:
                 outputs = model.module.generate(enc_idxs, enc_attn, prefix_dict, config.num_beams)
-            elif config.pretrained_model == "gpt2":
-                outputs = model.module.generate(dec_idxs, dec_attn, prefix, config.num_beams)
             print('outputs', outputs[0])
             eval_outputs.extend(outputs)
             
@@ -153,7 +138,6 @@ def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, 
     rouge1, rouge2, rougel = [], [], []
     for eval_targ, eval_output in zip(eval_targs, eval_outputs):
         rs = rouge_eval.get_scores([eval_output], [eval_targ])
-        # print(rs[0]['rouge-1'].keys())
         rouge1.append(rs[0]['rouge-1']['f'])
         rouge2.append(rs[0]['rouge-2']['f'])
         rougel.append(rs[0]['rouge-l']['f'])
@@ -186,10 +170,6 @@ tokenizer = BartTokenizer.from_pretrained(config.pretrained_model, cache_dir=con
     
 tokenizer.add_tokens([config.sep_token])
 prefix_tokenizer = BertTokenizer.from_pretrained("bert-base-cased")
-# from calc_prefix_vocab import find_vocab_size
-# print('adding parse vocabulary to prefix tokenizer..')
-# vocab, size = find_vocab_size('./dataset/data_300k/para/train/src.parse', './dataset/data_300k/para/train/tgt.parse') # vocab size 83
-# prefix_tokenizer.add_tokens(list(vocab))
 
 # train_data = load_data(config.train_src_sent_file, config.train_src_synt_file, config.train_tgt_sent_file, config.train_tgt_synt_file, tokenizer, config)
 dev_data = load_data(config.dev_src_sent_file, config.dev_src_synt_file, config.dev_tgt_sent_file, config.dev_tgt_synt_file, tokenizer, config)
@@ -205,11 +185,6 @@ device_ids = [i for i in range(config.gpu_num)]
 # initialize the model
 if config.pretrained_model == "facebook/bart-base":
     model = ParaphraseModel(config, tokenizer, prefix_tokenizer, device).to(device)
-# elif config.pretrained_model == "gpt2":
-#     model = PrefixParaphraseModel(config, tokenizer, prefix_tokenizer, device).to(device)
-
-# elif config.model_type == "graph_pip":
-#     model = GraphParaphraseModel(config, tokenizer, prefix_tokenizer, device).to(device)
 model = nn.DataParallel(model, device_ids)
 
 if config.model_dir != None:

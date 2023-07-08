@@ -14,48 +14,6 @@ from nltk.tree import Tree, ParentedTree
 from calc_prefix_vocab import find_vocab_size
 import pickle
 
-def get_lca_length(location1, location2):
-    i = 0
-    while i < len(location1) and i < len(location2) and location1[i] == location2[i]:
-        i+=1
-    return i
-
-def get_labels_from_lca(ptree, lca_len, location):
-    labels = []
-    for i in range(lca_len, len(location)):
-        labels.append(ptree[location[:i]].label())
-    return labels
-
-def findPath(ptree, text1, text2):
-    leaf_values = ptree.leaves()
-    leaf_index1 = leaf_values.index(text1)
-    leaf_index2 = leaf_values.index(text2)
-
-    location1 = ptree.leaf_treeposition(leaf_index1)
-    location2 = ptree.leaf_treeposition(leaf_index2)
-
-    #find length of least common ancestor (lca)
-    lca_len = get_lca_length(location1, location2)
-
-    #find path from the node1 to lca
-
-    labels1 = get_labels_from_lca(ptree, lca_len, location1)
-    #ignore the first element, because it will be counted in the second part of the path
-    result = labels1[1:]
-    #inverse, because we want to go from the node to least common ancestor
-    result = result[::-1]
-
-    #add path from lca to node2
-    result = result + get_labels_from_lca(ptree, lca_len, location2)
-    return result
-
-def findMaxLength(l):
-    max_len = -1
-    for ele in l:
-        if len(ele) > max_len:
-            max_len = len(ele)
-            res = ele
-
 class ParaphraseModel(nn.Module):
     def __init__(self, config, tokenizer, device, debug=True):
         super().__init__()
@@ -66,194 +24,32 @@ class ParaphraseModel(nn.Module):
 
         self.bart_config = BartConfig.from_pretrained('facebook/bart-base')
         
-        self.model = PrefixGenBartForConditionalGeneration(self.bart_config).from_pretrained("facebook/bart-base") #, n_layers=12, n_heads=12, input_size=768, prefix_config = PrefixTuningConfig)
-        
-        # if self.config.model_type in ["pip", "prefix", "prefix_enc"]:
-        #     self.model.config.use_encoder_prefix = True
-        # else:
-        #     self.bart_config.use_encoder_prefix = False
-        # self.model.config.use_cross_prefix = False
-        # self.model.config.use_decoder_prefix = False
-
+        self.model = PrefixGenBartForConditionalGeneration(self.bart_config).from_pretrained("facebook/bart-base")
         self.model.resize_token_embeddings(len(self.tokenizer))
-        
-        if self.config.prefix_model_type == "bart":
-            test_model = BartModel.from_pretrained('facebook/bart-base')
-            state_dict = test_model.state_dict()
-            new_state_dict = state_dict.copy()
-            for k, v in state_dict.items():
-                if 'decoder' in k and k in new_state_dict.keys():
-                    new_state_dict.pop(k)
-                elif 'encoder.' in k:
-                    new_state_dict[k.replace('encoder.','')] = v
-                    new_state_dict.pop(k)
-                else:
-                    new_state_dict.pop(k)
-            del test_model
-            del state_dict
-            self.prefix_model = BartEncoder(self.bart_config)
-            self.prefix_model.load_state_dict(new_state_dict)
-            self.prefix_model = self.prefix_model.to(self.model.device) # , strict=False
-            self.prefix_tokenizer = tokenizer
-        elif self.config.prefix_model_type == "self":
-            self.prefix_tokenizer = tokenizer
-            # cos sim prefix loss
-            self.prefix_criterion = nn.CosineSimilarity(dim=1)
-            # kl prefix loss
-            # self.prefix_criterion = nn.KLDivLoss(reduction="batchmean")
-            # self.wte = nn.Embedding(self.parse_vocab_size, self.input_size)
+
+        assert self.config.prefix_model_type == "self"
+        self.prefix_tokenizer = tokenizer
+        # cos sim prefix loss
+        self.prefix_criterion = nn.CosineSimilarity(dim=1)
         self.prefix_config = PrefixTuningConfig
 
-        # if self.bart_config.use_decoder_prefix == True:
-        #     self.n_layers = 12
-        # else:
-        #     
         self.n_layers = 6
         self.n_heads = 12
         self.n_embd_per_head = self.input_size // self.n_heads
         self.prefix_length = self.config.prefix_length
 
-        if self.config.prefix_type in ["attention0", "ptuning", "attention", "causal_attention", "attention2", "attention3", "attention3_1", "graph_attention", "cross_attention"]:
-            if self.config.prefix_type == "graph_attention":
-                self.k_proj = nn.Linear(self.input_size, self.input_size)
-                self.v_proj = nn.Linear(self.input_size, self.input_size)
-                self.q_proj = nn.Linear(self.input_size, self.input_size)
-                self.attention = nn.MultiheadAtntention(embed_dim = self.input_size, num_heads = self.n_heads)
-                self.attention2 = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
-                
-            elif self.config.prefix_type in ["attention", "cross_attention"]:
-                # self.k_proj = nn.Linear(self.input_size, self.input_size)
-                # self.v_proj = nn.Linear(self.input_size, self.input_size)
-                # self.q_proj = nn.Linear(self.input_size, self.input_size)
-                self.attention = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
-                self.register_buffer("prefix_ids", torch.arange(self.config.prefix_length).expand((1, -1))) # (1, prefix_len)
-                # self.wte = nn.Embedding(self.config.prefix_length, self.input_size)
-                self.wte_1 = nn.Embedding(self.config.prefix_length, self.input_size)
-                self.wte_2 = nn.Embedding(self.config.prefix_length, self.input_size)
-                self.wte_3 = nn.Embedding(self.config.prefix_length, self.input_size)
-            
-            elif self.config.prefix_type in ["attention0", "ptuning"]:
-                # # self.attention = nn.MultiheadAttention(embed_dim = 1, num_heads = 1)
-                # self.attention = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
-                self.register_buffer("prefix_ids", torch.arange(self.config.prefix_length).expand((1, -1))) # (1, prefix_len)
-                self.wte_1 = nn.Embedding(self.config.prefix_length, self.input_size)
-                self.wte_2 = nn.Embedding(self.config.prefix_length, self.input_size)
-                self.wte_3 = nn.Embedding(self.config.prefix_length, self.input_size)
-                # self.wte_1 = nn.Embedding(self.parse_vocab_size, self.input_size)
-                # self.wte_2 = nn.Embedding(self.parse_vocab_size, self.input_size)
-                # self.wte_3 = nn.Embedding(self.parse_vocab_size, self.input_size)
-
-            elif self.config.prefix_type == "attention2":
-                self.k_proj_1 = nn.Linear(self.input_size, self.input_size)
-                self.v_proj_1 = nn.Linear(self.input_size, self.input_size)
-                self.q_proj_1 = nn.Linear(self.input_size, self.input_size)
-                self.attention_1 = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
-
-                self.k_proj_2 = nn.Linear(self.input_size, self.input_size)
-                self.v_proj_2 = nn.Linear(self.input_size, self.input_size)
-                self.q_proj_2 = nn.Linear(self.input_size, self.input_size)
-                self.attention_2 = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
-
-                self.register_buffer("prefix_ids", torch.arange(self.config.prefix_length).expand((1, -1))) # (1, prefix_len)
-                self.wte_1 = nn.Embedding(self.config.prefix_length, self.input_size)
-                self.wte_2 = nn.Embedding(self.config.prefix_length, self.input_size)
-
-            elif self.config.prefix_type == "attention3":
-                self.k_proj_1 = nn.Linear(self.input_size, self.input_size)
-                self.v_proj_1 = nn.Linear(self.input_size, self.input_size)
-                self.q_proj_1 = nn.Linear(self.input_size, self.input_size)
-                self.attention_1 = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
-
-                self.k_proj_2 = nn.Linear(self.input_size, self.input_size)
-                self.v_proj_2 = nn.Linear(self.input_size, self.input_size)
-                self.q_proj_2 = nn.Linear(self.input_size, self.input_size)
-                self.attention_2 = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
-
-                self.k_proj_3 = nn.Linear(self.input_size, self.input_size)
-                self.v_proj_3 = nn.Linear(self.input_size, self.input_size)
-                self.q_proj_3 = nn.Linear(self.input_size, self.input_size)
-                self.attention_3 = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
-
-                self.register_buffer("prefix_ids", torch.arange(self.config.prefix_length).expand((1, -1))) # (1, prefix_len)
-                self.wte_1 = nn.Embedding(self.config.prefix_length, self.input_size)
-                self.wte_2 = nn.Embedding(self.config.prefix_length, self.input_size)
-                self.wte_3 = nn.Embedding(self.config.prefix_length, self.input_size)
-
-            elif self.config.prefix_type == "attention3_1":
-                self.k_proj_1 = nn.Linear(self.input_size, self.input_size)
-                self.v_proj_1 = nn.Linear(self.input_size, self.input_size)
-                self.q_proj_1 = nn.Linear(self.input_size, self.input_size)
-                self.attention_1 = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
-
-                self.register_buffer("prefix_ids", torch.arange(self.config.prefix_length).expand((1, -1))) # (1, prefix_len)
-                self.wte_1 = nn.Embedding(self.config.prefix_length, self.input_size)
-        
-        elif self.config.prefix_type == "linear":
-            self.linear = nn.Linear(1, self.prefix_length) # original
-
-        if self.config.prefix_type == "attention":
-            # self.control_trans = nn.Sequential(
-            #     nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-            #     nn.Tanh(),
-            #     nn.Linear(self.prefix_config.bottleneck_size, self.prefix_config.bottleneck_size),
-            #     nn.Tanh(),
-            #     # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-            #     nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
-            # )
-            self.linear = nn.Linear(self.input_size, self.input_size)
-            self.mu = 5
-
-            self.control_trans_1 = nn.Sequential(
-                nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-                nn.Tanh(),
-                # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-                nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
-            )
-            self.control_trans_2 = nn.Sequential(
-                nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-                nn.Tanh(),
-                # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-                nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
-            )
-            self.control_trans_3 = nn.Sequential(
-                nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-                nn.Tanh(),
-                # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-                nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
-            )
-        elif self.config.prefix_type == "attention2":
-            self.control_trans_1 = nn.Sequential(
-                nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-                nn.Tanh(),
-                # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-                nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
-            )
-            self.control_trans_2 = nn.Sequential(
-                nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-                nn.Tanh(),
-                # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-                nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
-            )
-        elif self.config.prefix_type in ["attention3", "attention3_1", "cross_attention"]:
-            self.control_trans_1 = nn.Sequential(
-                nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-                nn.Tanh(),
-                # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-                nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
-            )
-            self.control_trans_2 = nn.Sequential(
-                nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-                nn.Tanh(),
-                # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-                nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
-            )
-            self.control_trans_3 = nn.Sequential(
-                nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-                nn.Tanh(),
-                # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-                nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
-            )
-        elif self.config.prefix_type == "attention0":
+        if self.config.prefix_type in ["attention0", "ptuning"]:
+            # # self.attention = nn.MultiheadAttention(embed_dim = 1, num_heads = 1)
+            # self.attention = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
+            self.register_buffer("prefix_ids", torch.arange(self.config.prefix_length).expand((1, -1))) # (1, prefix_len)
+            self.wte_1 = nn.Embedding(self.config.prefix_length, self.input_size)
+            self.wte_2 = nn.Embedding(self.config.prefix_length, self.input_size)
+            self.wte_3 = nn.Embedding(self.config.prefix_length, self.input_size)
+            # self.wte_1 = nn.Embedding(self.parse_vocab_size, self.input_size)
+            # self.wte_2 = nn.Embedding(self.parse_vocab_size, self.input_size)
+            # self.wte_3 = nn.Embedding(self.parse_vocab_size, self.input_size)
+    
+        if self.config.prefix_type == "attention0":
             # # self.linear = nn.Linear(self.prefix_length, self.prefix_length)
             # # self.linear_1 = nn.Linear(self.input_size, self.input_size)
             # # self.linear_2 = nn.Linear(self.input_size, self.input_size)
@@ -301,14 +97,7 @@ class ParaphraseModel(nn.Module):
                 # nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
                 nn.Linear(2 * self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # enc+dec
             )
-        
-        else:
-            self.control_trans = nn.Sequential(
-                nn.Linear(self.input_size, self.prefix_config.bottleneck_size),
-                nn.Tanh(),
-                nn.Linear(self.prefix_config.bottleneck_size, self.n_layers * 2 * self.input_size), # original
-                # nn.Linear(self.prefix_config.bottleneck_size, 3 * self.n_layers * 2 * self.input_size), # enc+dec
-            )
+    
         self.dropout = nn.Dropout(self.prefix_config.dropout)
 
         self.debug = debug
@@ -432,20 +221,7 @@ class ParaphraseModel(nn.Module):
             prefix_inputs = [f"{self.resolve_synt_tok(tgt_synt)}" for tgt_synt in tgt_synts]
 
             # prefix_inputs = self.prefix_tokenizer(prefix_inputs, return_tensors='pt', padding=True) # (bsz, seq_len) # orginal
-            if self.config.prefix_type in ["causal_attention", "linear", "cross_attention", "attention3_1"]: # removed attention, might can add pad attention
-                prefix_inputs = self.prefix_tokenizer(prefix_inputs, return_tensors='pt', max_length = self.config.prefix_length, padding='max_length') # for padded prefix
-                # prefix attention mask size (bsz, seq_len)
-                prefix_inputs = prefix_inputs['input_ids'].to(self.model.device)
-                # for cross attention
-
-            elif self.config.prefix_type in ["attention2", "attention3"]: # ["attention", "attention2", "attention3"]: # , "attention3_1"
-                prefix_inputs = self.prefix_tokenizer(prefix_inputs, return_tensors='pt', padding=True) # (bsz, seq_len) # orginal
-                # prefix_inputs = self.prefix_tokenizer(prefix_inputs, return_tensors='pt', max_length = self.config.prefix_length, padding='max_length') # for padded prefix
-                # prefix attention mask size (bsz, seq_len)
-                prefix_inputs = prefix_inputs['input_ids'].to(self.device)
-
-            # commented for prefix tuning
-            elif self.config.prefix_type in ["attention","attention0"]:
+            if self.config.prefix_type == "attention0":
                 # for ptuning-based 
                 # prefix_inputs = self.get_synt_tok(prefix_inputs, self.prefix_tok_word2idx) # (bsz, prefix_len)
                 # prefix_inputs = self.prefix_tokenizer(prefix_inputs, return_tensors='pt', padding=True) # (bsz, seq_len) # orginal
@@ -464,68 +240,10 @@ class ParaphraseModel(nn.Module):
                 enc_outputs = self.model.model.encoder(prefix_inputs,output_hidden_states=True)
                 self.enc_outputs = enc_outputs.last_hidden_state.to(self.device)
             
-            if self.config.prefix_model_type == "bert" and self.config.prefix_type not in ["attention0", "ptuning"]:
-                prefix_inputs = self.prefix_model(prefix_inputs).last_hidden_state # for regular bert output
-                # prefix_inputs = self.prefix_model(prefix_inputs) #.last_hidden_state # size [batch_size, seq_len, 768]
-                # prefix_inputs = prefix_inputs[2][1:][self.config.prefix_model_layer]
-            elif self.config.prefix_model_type == "bart" and self.config.prefix_type != "ptuning":
-                prefix_inputs = self.prefix_model(prefix_inputs)["last_hidden_state"]
-            elif self.config.prefix_model_type == "self" and self.config.prefix_type not in ["attention0", "ptuning"]:
+            if self.config.prefix_type not in ["attention0", "ptuning"]:
                 prefix_inputs = self.model.model.encoder(prefix_inputs)["last_hidden_state"]
 
-            if self.config.prefix_type == "attention":
-                # commented for encoder initiated prefix
-                prefix_ids = self.wte_1(self.prefix_ids.expand(prefix_inputs.size()[0], -1)) # (batch_size, prefix_length, input_size)
-                # prefix_inputs = torch.cat([prefix_ids, prefix_inputs], dim=1) # (batch_size, prefix_length + seq_length, input_size)
-                
-                # prefix_q = self.q_proj(prefix_inputs).permute(1,0,2)
-                # prefix_k = self.k_proj(prefix_inputs).permute(1,0,2)
-                # prefix_v = self.v_proj(prefix_inputs).permute(1,0,2)
-                # prefix = self.attention(prefix_q, prefix_k, prefix_v)[0].permute(1,0,2)[:, :self.config.prefix_length, :] 
-
-                prefix = self.attention(prefix_inputs.permute(1,0,2), prefix_ids.permute(1,0,2), prefix_ids.permute(1,0,2))[0].permute(1,0,2) # [:, :self.config.prefix_length, :] 
-                embds = prefix
-
-                key_values = self.control_trans_1(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values = key_values.view(
-                    key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values = self.dropout(key_values) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-                prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-                # For regular (only enc) prefix
-                key_values = key_values.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                self.prefix_enc_outputs = self.linear(key_values[1][:,5,:,:,:].squeeze(1).reshape(key_values[1].size()[0], self.prefix_length, -1)).to(self.device)
-                prefix_dict['encoder_prefix'] = key_values
-
-
-                prefix_2 = self.wte_2(self.prefix_ids.expand(len(prefix_inputs), -1)) # (batch_size, prefix_length, input_size)
-                prefix_3 = self.wte_3(self.prefix_ids.expand(len(prefix_inputs), -1)) # (batch_size, prefix_length, input_size)
-
-                ##
-                embds_2 = prefix_2
-                key_values_2 = self.control_trans_2(embds_2) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_2 = key_values_2.view(
-                    key_values_2.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_2 = self.dropout(key_values_2) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-
-                ### 
-                embds_3 = prefix_3
-                key_values_3 = self.control_trans_3(embds_3) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_3 = key_values_3.view(
-                    key_values_3.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_3 = self.dropout(key_values_3) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-
-                key_values_2 = key_values_2.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                key_values_3 = key_values_3.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-
-                prefix_dict['cross_prefix'] = key_values_2
-                prefix_dict['decoder_prefix'] = key_values_3
-
-
-            elif self.config.prefix_type == "attention0":
+            if self.config.prefix_type == "attention0":
                 # original
                 # prefix_inputs = torch.cat([self.prefix_ids.expand(prefix_inputs.size()[0], -1), prefix_inputs], dim=1) # (batch_size, prefix_length + seq_length, input_size)
                 # prefix_inputs = self.attention(prefix_inputs.unsqueeze(-1).permute(1,0,2), prefix_inputs.unsqueeze(-1).permute(1,0,2), prefix_inputs.unsqueeze(-1).permute(1,0,2))[0].permute(1,0,2)[:, :self.config.prefix_length, :].squeeze(2)
@@ -672,375 +390,6 @@ class ParaphraseModel(nn.Module):
                 prefix_dict['encoder_prefix'] = key_values_1
                 prefix_dict['cross_prefix'] = key_values_2
                 prefix_dict['decoder_prefix'] = key_values_3
-
-            elif self.config.prefix_type == "causal_attention":
-                # commented for padded prefix
-                # # prefix_inputs = F.pad(prefix_inputs, (0, 0, 0, self.config.prefix_length), 'constant', 1) # (batch_size, seq_len + prefix_len, 768)
-                # prefix_q = self.q_proj(prefix_inputs).permute(1,0,2)
-                # prefix_k = self.k_proj(prefix_inputs).permute(1,0,2)
-                # prefix_v = self.v_proj(prefix_inputs).permute(1,0,2)
-   
-                attn_mask = torch.tril(torch.ones(prefix_inputs.size()[1], prefix_inputs.size()[1])).to(self.device)
-                attn_mask[attn_mask == 0] = float('-inf')
-                attn_mask[attn_mask == 1] = 0.
-                # prefix_inputs = self.attention(prefix_q, prefix_k, prefix_v, attn_mask=attn_mask)[0] # (seq_len, batch_size, input_size) # original
-                prefix_inputs = self.attention(prefix_inputs.permute(1,0,2), prefix_inputs.permute(1,0,2), prefix_inputs.permute(1,0,2), attn_mask=attn_mask)[0] # (seq_len, batch_size, input_size) # original
-
-                # commented for padded prefix
-                # prefix = prefix_inputs.permute(1,0,2)[:, :self.config.prefix_length, :] # (batch_size, prefix_len, input_size)
-                # # prefix_leftover = prefix_inputs.permute(1,0,2)[:, 30:, :]
-                # # self.prefix_loss = self.prefix_criterion(prefix_leftover, torch.zeros_like(prefix_leftover))
-
-                embds = prefix
-                key_values = self.control_trans(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values = key_values.view(
-                    #self.config.train_batch_size, self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-                    key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                    # 3, key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # for (enc+cross+dec) prefix
-                )  # *2 for key and value
-
-                key_values = self.dropout(key_values) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-                prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-                # For regular (only enc) prefix
-                key_values = key_values.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                prefix_dict['encoder_prefix'] = key_values
-
-            elif self.config.prefix_type == "attention2":
-                prefix_ids_1 = self.wte_1(self.prefix_ids.expand(prefix_inputs.size()[0], -1)) # (batch_size, prefix_length, input_size)
-                prefix_inputs_1 = torch.cat([prefix_ids_1, prefix_inputs], dim=1) # (batch_size, prefix_length + seq_length, input_size)
-
-                # prefix_q_1 = self.q_proj_1(prefix_inputs_1).permute(1,0,2)
-                # prefix_k_1 = self.k_proj_1(prefix_inputs_1).permute(1,0,2)
-                # prefix_v_1 = self.v_proj_1(prefix_inputs_1).permute(1,0,2)
-                # prefix_1 = self.attention_1(prefix_q_1, prefix_k_1, prefix_v_1)[0].permute(1,0,2)[:, :self.config.prefix_length, :] # for padded prefix
-                prefix_1 = self.attention_1(prefix_inputs_1.permute(1,0,2), prefix_inputs_1.permute(1,0,2), prefix_inputs_1.permute(1,0,2))[0].permute(1,0,2)[:, :self.config.prefix_length, :] # for padded prefix
-            
-                prefix_ids_2 = self.wte_2(self.prefix_ids.expand(prefix_inputs.size()[0], -1)) # (batch_size, prefix_length, input_size)
-                prefix_inputs_2 = torch.cat([prefix_ids_2, prefix_inputs], dim=1) # (batch_size, prefix_length + seq_length, input_size)
-
-                # prefix_q_2 = self.q_proj_1(prefix_inputs_2).permute(1,0,2)
-                # prefix_k_2 = self.k_proj_1(prefix_inputs_2).permute(1,0,2)
-                # prefix_v_2 = self.v_proj_1(prefix_inputs_2).permute(1,0,2)
-                # prefix_2 = self.attention_2(prefix_q_2, prefix_k_2, prefix_v_2)[0].permute(1,0,2)[:, :self.config.prefix_length, :] # for padded prefix
-                prefix_2 = self.attention_2(prefix_inputs_2.permute(1,0,2), prefix_inputs_2.permute(1,0,2), prefix_inputs_2.permute(1,0,2))[0].permute(1,0,2)[:, :self.config.prefix_length, :] # for padded prefix
-
-                embds_1 = prefix_1
-                key_values_1 = self.control_trans_1(embds_1) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_1 = key_values_1.view(
-                    key_values_1.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_1 = self.dropout(key_values_1) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-                
-                embds_2 = prefix_2
-                key_values_2 = self.control_trans_2(embds_2) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_2 = key_values_2.view(
-                    key_values_2.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_2 = self.dropout(key_values_2) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-
-                prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-                # For regular (only enc) prefix
-                key_values_1 = key_values_1.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                key_values_2 = key_values_2.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                prefix_dict['encoder_prefix'] = key_values_1
-                prefix_dict['cross_prefix'] = key_values_2
-
-                # For all (enc + dec) prefix
-                # # encoder_prefix, decoder_prefix = key_values.split(1, dim = 0) 
-                # encoder_prefix, cross_prefix, decoder_prefix = key_values.split(1, dim = 0) # for enc+cross+dec prefix
-                # encoder_prefix = encoder_prefix.squeeze(0).permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1) # after permute: (batch_size, n_layers * 2, prefix_length, n_heads, n_embd)
-                # cross_prefix = cross_prefix.squeeze(0).permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1) # for enc+cross+dec prefix
-                # decoder_prefix = decoder_prefix.squeeze(0).permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                # prefix_dict['encoder_prefix'] = encoder_prefix
-                # prefix_dict['cross_prefix'] = cross_prefix
-                # prefix_dict['decoder_prefix'] = decoder_prefix
-
-            elif self.config.prefix_type == "attention3":
-                # 
-                prefix_ids_1 = self.wte_1(self.prefix_ids.expand(prefix_inputs.size()[0], -1)) # (batch_size, prefix_length, input_size)
-                prefix_inputs_1 = torch.cat([prefix_ids_1, prefix_inputs], dim=1) # (batch_size, prefix_length + seq_length, input_size)
-
-                # prefix_q_1 = self.q_proj_1(prefix_inputs_1).permute(1,0,2)
-                # prefix_k_1 = self.k_proj_1(prefix_inputs_1).permute(1,0,2)
-                # prefix_v_1 = self.v_proj_1(prefix_inputs_1).permute(1,0,2)
-                # prefix_1 = self.attention_1(prefix_q_1, prefix_k_1, prefix_v_1)[0].permute(1,0,2)[:, :self.config.prefix_length, :] # for padded prefix
-                prefix_1 = self.attention_1(prefix_inputs_1.permute(1,0,2), prefix_inputs_1.permute(1,0,2), prefix_inputs_1.permute(1,0,2))[0].permute(1,0,2)[:, :self.config.prefix_length, :] 
-            
-                ## 
-                prefix_ids_2 = self.wte_2(self.prefix_ids.expand(prefix_inputs.size()[0], -1)) # (batch_size, prefix_length, input_size)
-                prefix_inputs_2 = torch.cat([prefix_ids_2, prefix_inputs], dim=1) # (batch_size, prefix_length + seq_length, input_size)
-
-                # prefix_q_2 = self.q_proj_2(prefix_inputs_2).permute(1,0,2)
-                # prefix_k_2 = self.k_proj_2(prefix_inputs_2).permute(1,0,2)
-                # prefix_v_2 = self.v_proj_2(prefix_inputs_2).permute(1,0,2)
-                # prefix_2 = self.attention_2(prefix_q_2, prefix_k_2, prefix_v_2)[0].permute(1,0,2)[:, :self.config.prefix_length, :] # for padded prefix
-                prefix_2 = self.attention_2(prefix_inputs_2.permute(1,0,2), prefix_inputs_2.permute(1,0,2), prefix_inputs_2.permute(1,0,2))[0].permute(1,0,2)[:, :self.config.prefix_length, :]
-
-                ###
-                prefix_ids_3 = self.wte_3(self.prefix_ids.expand(prefix_inputs.size()[0], -1)) # (batch_size, prefix_length, input_size)
-                prefix_inputs_3 = torch.cat([prefix_ids_3, prefix_inputs], dim=1) # (batch_size, prefix_length + seq_length, input_size)
-
-                # prefix_q_3 = self.q_proj_3(prefix_inputs_3).permute(1,0,2)
-                # prefix_k_3 = self.k_proj_3(prefix_inputs_3).permute(1,0,2)
-                # prefix_v_3 = self.v_proj_3(prefix_inputs_3).permute(1,0,2)
-                # prefix_3 = self.attention_3(prefix_q_3, prefix_k_3, prefix_v_3)[0].permute(1,0,2)[:, :self.config.prefix_length, :] # for padded prefix
-                prefix_3 = self.attention_3(prefix_inputs_3.permute(1,0,2), prefix_inputs_3.permute(1,0,2), prefix_inputs_3.permute(1,0,2))[0].permute(1,0,2)[:, :self.config.prefix_length, :]
-
-                ###### ------ #####
-                embds_1 = prefix_1
-                key_values_1 = self.control_trans_1(embds_1) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_1 = key_values_1.view(
-                    key_values_1.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_1 = self.dropout(key_values_1) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-                
-                ##
-                embds_2 = prefix_2
-                key_values_2 = self.control_trans_2(embds_2) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_2 = key_values_2.view(
-                    key_values_2.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_2 = self.dropout(key_values_2) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-
-                ### 
-                embds_3 = prefix_3
-                key_values_3 = self.control_trans_3(embds_3) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_3 = key_values_3.view(
-                    key_values_3.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_3 = self.dropout(key_values_3) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-
-                prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-                # For regular (only enc) prefix
-                key_values_1 = key_values_1.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                key_values_2 = key_values_2.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                key_values_3 = key_values_3.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                prefix_dict['encoder_prefix'] = key_values_1
-                prefix_dict['cross_prefix'] = key_values_2
-                prefix_dict['decoder_prefix'] = key_values_3
-
-                # For all (enc + dec) prefix
-                # # encoder_prefix, decoder_prefix = key_values.split(1, dim = 0) 
-                # encoder_prefix, cross_prefix, decoder_prefix = key_values.split(1, dim = 0) # for enc+cross+dec prefix
-                # encoder_prefix = encoder_prefix.squeeze(0).permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1) # after permute: (batch_size, n_layers * 2, prefix_length, n_heads, n_embd)
-                # cross_prefix = cross_prefix.squeeze(0).permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1) # for enc+cross+dec prefix
-                # decoder_prefix = decoder_prefix.squeeze(0).permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                # prefix_dict['encoder_prefix'] = encoder_prefix
-                # prefix_dict['cross_prefix'] = cross_prefix
-                # prefix_dict['decoder_prefix'] = decoder_prefix
-
-            elif self.config.prefix_type == "attention3_1":
-                # 
-                prefix_ids_1 = self.wte_1(self.prefix_ids.expand(prefix_inputs.size()[0], -1)) # (batch_size, prefix_length, input_size)
-                # prefix_inputs_1 = torch.cat([prefix_ids_1, prefix_inputs], dim=1) # (batch_size, prefix_length + seq_length, input_size)
-
-                prefix_q = self.q_proj_1(prefix_inputs).permute(1,0,2) # (prefix_length, batch_size, input_size)
-                prefix_k = self.k_proj_1(prefix_ids_1).permute(1,0,2)
-                prefix_v = self.v_proj_1(prefix_ids_1).permute(1,0,2)
-
-                prefix_1 = self.attention_1(prefix_q, prefix_k, prefix_v)[0].permute(1,0,2) # for padded prefix # (batch_size, prefix_length, input_size)
-
-                # prefix_q_1 = self.q_proj_1(prefix_inputs_1).permute(1,0,2)
-                # prefix_k_1 = self.k_proj_1(prefix_inputs_1).permute(1,0,2)
-                # prefix_v_1 = self.v_proj_1(prefix_inputs_1).permute(1,0,2)
-
-                # prefix_1 = self.attention_1(prefix_q_1, prefix_k_1, prefix_v_1)[0].permute(1,0,2)[:, :self.config.prefix_length, :] # for padded prefix
-            
-                ###### ------ #####
-                embds_1 = prefix_1
-                key_values_1 = self.control_trans_1(embds_1) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_1 = key_values_1.view(
-                    key_values_1.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_1 = self.dropout(key_values_1) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-                
-                ##
-                embds_2 = prefix_1
-                key_values_2 = self.control_trans_2(embds_2) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_2 = key_values_2.view(
-                    key_values_2.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_2 = self.dropout(key_values_2) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-
-                ### 
-                embds_3 = prefix_1
-                key_values_3 = self.control_trans_3(embds_3) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_3 = key_values_3.view(
-                    key_values_3.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_3 = self.dropout(key_values_3) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-
-                prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-                # For regular (only enc) prefix
-                key_values_1 = key_values_1.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                key_values_2 = key_values_2.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                key_values_3 = key_values_3.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                prefix_dict['encoder_prefix'] = key_values_1
-                prefix_dict['cross_prefix'] = key_values_2
-                prefix_dict['decoder_prefix'] = key_values_3
-
-            elif self.config.prefix_type == "linear":
-                # prefix = self.linear(self.resolve_len(prefix_inputs, 2 * self.config.prefix_length).permute(0,2,1)) # for random
-                prefix = self.linear(prefix_inputs.mean(dim=1).unsqueeze(-1)) # before linear: [batch_size, 768] # original # after linear: [batch_size, 768, prefix_length] 
-                embds = prefix.permute(0,2,1)
-
-                key_values = self.control_trans(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values = key_values.view(
-                    #self.config.train_batch_size, self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-                    key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                    # 3, key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # for (enc+cross+dec) prefix
-                )  # *2 for key and value
-
-                key_values = self.dropout(key_values) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-                prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-                # For regular (only enc) prefix
-                key_values = key_values.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                prefix_dict['encoder_prefix'] = key_values
-                
-            
-            elif self.config.prefix_type == "cross_attention":
-                prefix_ids = self.wte_1(self.prefix_ids.expand(prefix_inputs.size()[0], -1)) # (batch_size, prefix_length, input_size)
-
-                # prefix_q = self.q_proj(prefix_inputs).permute(1,0,2) # (prefix_length, batch_size, input_size)
-                # prefix_k = self.k_proj(prefix_ids).permute(1,0,2)
-                # prefix_v = self.v_proj(prefix_ids).permute(1,0,2)
-                # embds = self.attention(prefix_q, prefix_k, prefix_v)[0].permute(1,0,2) # for padded prefix # (batch_size, prefix_length, input_size)
-                embds = self.attention(prefix_inputs.permute(1,0,2), prefix_ids.permute(1,0,2), prefix_ids.permute(1,0,2))[0].permute(1,0,2)
-
-                # for regular cross attention
-                key_values = self.control_trans_1(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values = key_values.view(
-                    #self.config.train_batch_size, self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-                    key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-                    # 3, key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # for all (enc+dec) prefix
-                )  # *2 for key and value
-
-                key_values = self.dropout(key_values) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-                prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-                # # For regular (only enc) prefix
-                key_values = key_values.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                prefix_dict['encoder_prefix'] = key_values
-
-                # ###### --- for cross attention3_1 --- #####
-                # key_values_1 = self.control_trans_1(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                # key_values_1 = key_values_1.view(
-                #     key_values_1.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                # )  # *2 for key and value
-                # key_values_1 = self.dropout(key_values_1) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-                
-                ##
-                embds_2 = self.wte_2(self.prefix_ids.expand(prefix_inputs.size()[0], -1))
-                key_values_2 = self.control_trans_2(embds_2) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_2 = key_values_2.view(
-                    key_values_2.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_2 = self.dropout(key_values_2) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-
-                ### 
-                embds_3 = self.wte_3(self.prefix_ids.expand(prefix_inputs.size()[0], -1))
-                key_values_3 = self.control_trans_3(embds_3) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-                key_values_3 = key_values_3.view(
-                    key_values_3.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-                )  # *2 for key and value
-                key_values_3 = self.dropout(key_values_3) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-
-                # For regular (only enc) prefix
-                # key_values_1 = key_values_1.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                key_values_2 = key_values_2.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                key_values_3 = key_values_3.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-                # prefix_dict['encoder_prefix'] = key_values_1
-                prefix_dict['cross_prefix'] = key_values_2
-                prefix_dict['decoder_prefix'] = key_values_3
-
-        # if self.config.model_type in ["pip", "prefix", "prefix_reg"] and self.config.prefix_type in ["attention", "causal_attention", "linear"] :
-        #     if self.config.prefix_type in ["attention", "causal_attention"]:
-        #         embds = prefix  # attention prefix # # (batch_size, prefix_length, input_size)
-        #     elif self.config.prefix_type == "linear":
-        #         embds = prefix.permute(0,2,1) # original # [batch_size, prefix_length, input_] 
-
-        #     key_values = self.control_trans(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-        #     key_values = key_values.view(
-        #         #self.config.train_batch_size, self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-        #         key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # original
-        #         # 3, key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # for (enc+cross+dec) prefix
-        #     )  # *2 for key and value
-
-        #     key_values = self.dropout(key_values) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-        #     prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-        #     # For regular (only enc) prefix
-        #     key_values = key_values.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-        #     prefix_dict['encoder_prefix'] = key_values
-
-        #     # For all (enc + dec) prefix
-        #     # # encoder_prefix, decoder_prefix = key_values.split(1, dim = 0) 
-        #     # encoder_prefix, cross_prefix, decoder_prefix = key_values.split(1, dim = 0) # for enc+cross+dec prefix
-        #     # encoder_prefix = encoder_prefix.squeeze(0).permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1) # after permute: (batch_size, n_layers * 2, prefix_length, n_heads, n_embd)
-        #     # cross_prefix = cross_prefix.squeeze(0).permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1) # for enc+cross+dec prefix
-        #     # decoder_prefix = decoder_prefix.squeeze(0).permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-        #     # prefix_dict['encoder_prefix'] = encoder_prefix
-        #     # prefix_dict['cross_prefix'] = cross_prefix
-        #     # prefix_dict['decoder_prefix'] = decoder_prefix
-
-        # elif self.config.model_type == "pip" and self.config.prefix_type == "attention3":
-        #     embds = prefix
-        #     encoder_key_values = self.control_trans_1(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-        #     encoder_key_values = encoder_key_values.view(
-        #         encoder_key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-        #     )  # *2 for key and value
-        #     encoder_key_values = self.dropout(encoder_key_values) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-            
-        #     cross_key_values = self.control_trans_2(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-        #     cross_key_values = cross_key_values.view(
-        #         cross_key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-        #     )  # *2 for key and value
-        #     cross_key_values = self.dropout(cross_key_values) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-            
-        #     decoder_key_values = self.control_trans_3(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-        #     decoder_key_values = decoder_key_values.view(
-        #         decoder_key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-        #     )  # *2 for key and value
-        #     decoder_key_values = self.dropout(decoder_key_values) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-            
-        #     prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-        #     # For regular (only enc) prefix
-        #     encoder_key_values = encoder_key_values.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-        #     cross_key_values = cross_key_values.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-        #     decoder_key_values = decoder_key_values.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-
-        #     prefix_dict['encoder_prefix'] = encoder_key_values
-        #     prefix_dict['cross_prefix'] = cross_key_values
-        #     prefix_dict['decoder_prefix'] = decoder_key_values
-
-        # elif self.config.model_type == "pip" and self.config.prefix_type == "cross_attention":
-        #     prefix_ids = self.wte(self.prefix_ids.expand(prefix_inputs.size()[0], -1)) # (batch_size, prefix_length, input_size)
-
-        #     prefix_q = self.q_proj(prefix_ids).permute(1,0,2) # (prefix_length, batch_size, input_size)
-        #     prefix_k = self.k_proj(prefix_inputs).permute(1,0,2)
-        #     prefix_v = self.v_proj(prefix_inputs).permute(1,0,2)
-
-        #     embds = self.attention(prefix_q, prefix_k, prefix_v)[0].permute(1,0,2) # for padded prefix # (batch_size, prefix_length, input_size)
-
-        #     key_values = self.control_trans(embds) #embds)  # batch_size x prefix_length x n_layers*2*input_size
-        #     key_values = key_values.view(
-        #         #self.config.train_batch_size, self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-        #         key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head
-        #         # 3, key_values.size()[0], self.prefix_length, self.n_layers * 2, self.n_heads, self.n_embd_per_head # for all (enc+dec) prefix
-        #     )  # *2 for key and value
-
-        #     key_values = self.dropout(key_values) # n_layers * (2 x batch_size x n_heads x prefix_length x n_embd_per_head)
-        #     prefix_dict = {} # need: (bz, n_encoder_layers, prefix_len, head_num, dim)
-
-        #     # For regular (only enc) prefix
-        #     key_values = key_values.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
-        #     prefix_dict['encoder_prefix'] = key_values
             
         # encoder inputs
         if self.config.use_enc_src_parse:
@@ -1121,7 +470,7 @@ class ParaphraseModel(nn.Module):
                              labels=lbl_idxs, 
                              return_dict=True)
         
-        if self.config.prefix_type in ["attention", "attention0"]:
+        if self.config.prefix_type == "attention0":
             # # sim1 = self.prefix_criterion(F.log_softmax(self.prefix_enc_outputs/ 1, dim=1), F.softmax(self.enc_outputs/ 1, dim=1))
             # # for enc input cos sim
             # # sim1 = torch.mean(1 - torch.abs(self.prefix_criterion(self.prefix_enc_inputs, self.enc_inputs))).to(outputs['loss'].device)
