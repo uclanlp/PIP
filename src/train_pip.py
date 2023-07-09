@@ -143,7 +143,7 @@ def evaluate_pip(epoch, model, eval_data, rouge_eval, output_dir, config, mode, 
             tgt_sents = [eval_data[i]["tgt_sent"] for i in eval_idxs]
             tgt_synts = [eval_data[i]["tgt_synt"] for i in eval_idxs]
             
-            assert config.prefix_type in ["attention0", "ptuning"]
+            assert config.prefix_type in ["pip_indirect", "ptuning"]
             enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
                   
             enc_idxs = enc_idxs.to(device)
@@ -236,13 +236,13 @@ if config.model_dir != None:
 
 # optimizer
 param_groups = [{'params': model.module.model.parameters(), 'lr': config.learning_rate, 'weight_decay': config.weight_decay}]
-if config.prefix_type == "attention0":
+if config.prefix_type == "pip_indirect":
     prefix_param_groups = [{'params': model.module.linear.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
                             {'params': model.module.attention.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
                             {'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
                             {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
                             {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
-if config.prefix_type == "attention0_direct":
+if config.prefix_type == "pip_direct":
     prefix_param_groups = [{'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
                             {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
                             {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
@@ -257,7 +257,7 @@ prefix_optimizer = AdamW(params=prefix_param_groups) #1e-4
 rouge_eval = rouge.Rouge(metrics=['rouge-1', 'rouge-2', 'rouge-l'])
 
 # Set Prefix Tuning Parameters
-if config.prefix_type == "attention0":
+if config.prefix_type == "pip_indirect":
     # for cos sim loss for enc
     for param in model.module.linear.parameters():
         param.requires_grad = True
@@ -276,7 +276,7 @@ if config.prefix_type == "attention0":
     for param in model.module.control_trans_3.parameters():
         param.requires_grad = True
 
-if config.prefix_type == "attention0_direct":
+if config.prefix_type == "pip_direct":
     for param in model.module.wte_1.parameters():
         param.requires_grad = True
     for param in model.module.wte_2.parameters():
@@ -335,7 +335,7 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
         tgt_sents = [train_data[i]["tgt_sent"] for i in train_idxs]
         tgt_synts = [train_data[i]["tgt_synt"] for i in train_idxs]
 
-        assert config.prefix_type in ["attention0", "attention0_direct", "ptuning"]
+        assert config.prefix_type in ["pip_indirect", "pip_direct", "ptuning"]
         enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
         prefix_idxs = prefix_idxs.to(device)
             
@@ -359,13 +359,13 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
 
         loss.backward()
         # stop grad clipping
-        if config.prefix_type == "attention0":
+        if config.prefix_type == "pip_indirect":
             prefix_params = []
             for m in [model.module.linear.parameters(),model.module.attention.parameters(),model.module.wte_1.parameters(),model.module.wte_2.parameters(),model.module.wte_3.parameters(),
                 model.module.control_trans_1.parameters(), model.module.control_trans_2.parameters(), model.module.control_trans_3.parameters()]:
                 prefix_params += [param for param in m]
             torch.nn.utils.clip_grad_norm_(prefix_params, config.grad_clipping)
-        if config.prefix_type == "attention0_direct":
+        if config.prefix_type == "pip_direct":
             prefix_params = []
             for m in [model.module.wte_1.parameters(),model.module.wte_2.parameters(),model.module.wte_3.parameters(),
                 model.module.control_trans_1.parameters(), model.module.control_trans_2.parameters(), model.module.control_trans_3.parameters()]:

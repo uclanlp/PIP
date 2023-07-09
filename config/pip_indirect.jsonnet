@@ -5,8 +5,7 @@ local data_dir = "./dataset/data_300k";
 local use_enc_src_parse = false;
 local use_dec_tgt_parse = false;
 local prefix_model_layer = 11;
-local prefix_model_type = "self";
-local prefix_type = "ptuning";
+local prefix_type = "pip_indirect";
 
 local model_name_map = {
     "facebook/bart-base": "bart-base", 
@@ -20,11 +19,7 @@ local model_name_map = {
 	"model_type": model_type, 
 	"pretrained_model": pretrained_model,
     "prefix_model_layer": prefix_model_layer,
-    "prefix_model_type": prefix_model_type,
     "prefix_type": prefix_type,
-	"output_dir": "./outputs/%s_%s_prefix_tuning_200_addlayer_3e-04_noscheduler_%s_%s_%s%s%s/" % [model_type, prefix_type, prefix_model_type, model_name_map[pretrained_model], dataset, 
-                                             if use_enc_src_parse then "_use-enc-src-parse" else "", 
-                                             if use_dec_tgt_parse then "_use-dec-tgt-parse" else ""], 
     "cache_dir": "./cache/", 
     "train_src_sent_file": "%s/para/train/src.txt" % [data_dir], 
     "train_src_synt_file": "%s/para/train/src.parse" % [data_dir], 
@@ -59,8 +54,10 @@ local model_name_map = {
     "prefix_threshold": 4,
     "train_batch_size": 64, 
     "eval_batch_size": 64, 
-    "learning_rate": 3e-05, 
     "prefix_learning_rate": 3e-04, 
+    "output_dir": "./outputs/%s_%s_%s_%s_%s%s%s/" % [model_type, prefix_type, prefix_learning_rate, model_name_map[pretrained_model], dataset, 
+                                             if use_enc_src_parse then "_use-enc-src-parse" else "", 
+                                             if use_dec_tgt_parse then "_use-dec-tgt-parse" else ""], 
     "weight_decay": 0.0, 
     "grad_clipping": 1.0, 
     "num_beams": 4, 

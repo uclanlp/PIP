@@ -27,7 +27,6 @@ class ParaphraseModel(nn.Module):
         self.model = PrefixGenBartForConditionalGeneration(self.bart_config).from_pretrained("facebook/bart-base")
         self.model.resize_token_embeddings(len(self.tokenizer))
 
-        assert self.config.prefix_model_type == "self"
         self.prefix_tokenizer = tokenizer
         # cos sim prefix loss
         self.prefix_criterion = nn.CosineSimilarity(dim=1)
@@ -44,8 +43,8 @@ class ParaphraseModel(nn.Module):
         self.wte_2 = nn.Embedding(self.config.prefix_length, self.input_size)
         self.wte_3 = nn.Embedding(self.config.prefix_length, self.input_size)
 
-        if self.config.prefix_type in ["attention0", "attention0_direct"]:
-            if self.config.prefix_type == "attention0":
+        if self.config.prefix_type in ["pip_indirect", "pip_direct"]:
+            if self.config.prefix_type == "pip_indirect":
                 self.attention = nn.MultiheadAttention(embed_dim = self.input_size, num_heads = self.n_heads)
                 self.linear = nn.Linear(self.input_size, self.input_size)
                 self.mu = 1
@@ -220,7 +219,7 @@ class ParaphraseModel(nn.Module):
         # prefix_inputs = [f"{tgt_synt}" for tgt_synt in tgt_synts]
         prefix_inputs = [f"{self.resolve_synt_tok(tgt_synt)}" for tgt_synt in tgt_synts]
 
-        if self.config.prefix_type == "attention0":
+        if self.config.prefix_type == "pip_indirect":
             prefix_inputs = self.prefix_tokenizer(prefix_inputs, return_tensors='pt', max_length = self.config.prefix_length, padding='max_length')
             prefix_inputs = prefix_inputs['input_ids'].to(self.device)
 
@@ -228,7 +227,7 @@ class ParaphraseModel(nn.Module):
             enc_outputs = self.model.model.encoder(prefix_inputs,output_hidden_states=True)
             self.enc_outputs = enc_outputs.last_hidden_state.to(self.device)
         
-        if self.config.prefix_type in ["attention0", "attention0_direct"]:
+        if self.config.prefix_type in ["pip_indirect", "pip_direct"]:
             prefix_inputs = self.prefix_ids.expand(len(prefix_inputs), -1) # for prefix tuning
 
             prefix_inputs = prefix_inputs.to(torch.long)
@@ -264,7 +263,7 @@ class ParaphraseModel(nn.Module):
             # For regular (only enc) prefix
             key_values_1 = key_values_1.permute(0, 2, 1, 3, 4).split(self.n_layers, dim = 1)
 
-            if self.config.prefix_type == "attention0":
+            if self.config.prefix_type == "pip_indirect":
                 # for cos sim based p-tuning
                 batch_size = key_values_3.size()[0]
                 prefix_enc_outputs_key = torch.cat([key_values_1[0][:,5,:,:,:].squeeze(1).reshape(batch_size, self.prefix_length, -1), self.enc_outputs], dim=1) # (batch_size, prefix_length + seq_length, input_size)
@@ -272,7 +271,7 @@ class ParaphraseModel(nn.Module):
                 self.prefix_enc_outputs = self.attention(self.enc_outputs.permute(1,0,2), prefix_enc_outputs_key.permute(1,0,2), prefix_enc_outputs_val.permute(1,0,2))[0].permute(1,0,2) #[:, self.config.prefix_length:, :].to(self.device) # for padded prefix
                 self.prefix_enc_outputs = self.linear(self.prefix_enc_outputs)
             
-            elif self.config.prefix_type == "attention0_direct":
+            elif self.config.prefix_type == "pip_direct":
                 # for enc output sub
                 key_values_1_0 = key_values_1[0].clone()
                 key_values_1_1 = key_values_1[1].clone()
@@ -396,7 +395,7 @@ class ParaphraseModel(nn.Module):
                              labels=lbl_idxs, 
                              return_dict=True)
         
-        if self.config.prefix_type == "attention0":
+        if self.config.prefix_type == "pip_indirect":
             sim1 = torch.mean(1 - torch.abs(self.prefix_criterion(self.prefix_enc_outputs, self.enc_outputs))).to(outputs['loss'].device)
             loss = outputs['loss'] + self.mu * sim1
         else:

@@ -71,7 +71,7 @@ def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, 
             tgt_sents = [eval_data[i]["tgt_sent"] for i in eval_idxs]
             tgt_synts = [eval_data[i]["tgt_synt"] for i in eval_idxs]
             
-            assert config.prefix_type in ["attention0", "attention0_direct", "ptuning"]
+            assert config.prefix_type in ["pip_indirect", "pip_direct", "ptuning"]
             enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
             
             enc_idxs = enc_idxs.to(device)
