@@ -236,20 +236,19 @@ if config.model_dir != None:
 
 # optimizer
 param_groups = [{'params': model.module.model.parameters(), 'lr': config.learning_rate, 'weight_decay': config.weight_decay}]
-if config.model_type == "pip":
-    if config.prefix_type == "attention0":
-        prefix_param_groups = [ # # {'params': [model.module.mu], 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                                # {'params': model.module.linear.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                                # {'params': model.module.attention.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                                # # {'params': model.module.linear_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},{'params': model.module.linear_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                                # # {'params': model.module.attention.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                                {'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                                {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
-                                {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
-    elif config.prefix_type == "ptuning":
-        prefix_param_groups = [ {'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                                {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
-                                {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
+if config.prefix_type == "attention0":
+    prefix_param_groups = [ # # {'params': [model.module.mu], 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+                            # {'params': model.module.linear.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+                            # {'params': model.module.attention.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+                            # # {'params': model.module.linear_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},{'params': model.module.linear_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+                            # # {'params': model.module.attention.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+                            {'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+                            {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
+                            {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
+elif config.prefix_type == "ptuning":
+    prefix_param_groups = [ {'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+                            {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
+                            {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
 
 optimizer = AdamW(params=param_groups) #1e-4
 prefix_optimizer = AdamW(params=prefix_param_groups) #1e-4
@@ -369,14 +368,9 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
         tgt_sents = [train_data[i]["tgt_sent"] for i in train_idxs]
         tgt_synts = [train_data[i]["tgt_synt"] for i in train_idxs]
 
-        if config.model_type == "prompt":
-            enc_idxs, prefix_inputs, enc_attn, prefix_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-            prefix_inputs = prefix_inputs.to(device)
-            prefix_attn = prefix_attn.to(device)
-        elif config.model_type == "pip":
-            assert config.prefix_type in ["attention0", "ptuning"]
-            enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-            prefix_idxs = prefix_idxs.to(device)
+        assert config.prefix_type in ["attention0", "ptuning"]
+        enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
+        prefix_idxs = prefix_idxs.to(device)
             
         enc_idxs = enc_idxs.to(device)
         enc_attn = enc_attn.to(device)
@@ -384,10 +378,9 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
         dec_attn = dec_attn.to(device)
         lbl_idxs = lbl_idxs.to(device)
 
-        if config.model_type in ["pip", "prefix_reg"]:
-            for key in prefix_dict.keys():
-                prefix_dict[key][0].to(device)
-                prefix_dict[key][1].to(device)
+        for key in prefix_dict.keys():
+            prefix_dict[key][0].to(device)
+            prefix_dict[key][1].to(device)
         
         # forward model
         # loss = model(src_sents, src_synts, tgt_synts, tgt_sents)
