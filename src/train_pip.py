@@ -143,7 +143,6 @@ def evaluate_pip(epoch, model, eval_data, rouge_eval, output_dir, config, mode, 
             tgt_sents = [eval_data[i]["tgt_sent"] for i in eval_idxs]
             tgt_synts = [eval_data[i]["tgt_synt"] for i in eval_idxs]
             
-            assert config.prefix_type in ["pip_indirect", "ptuning"]
             enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
                   
             enc_idxs = enc_idxs.to(device)
@@ -229,29 +228,23 @@ assert config.pretrained_model == "facebook/bart-base"
 model = ParaphraseModel(config, tokenizer, device).to(device)
 model = nn.DataParallel(model, device_ids)
 
-# Loading model checkpoint if provided in config
-if config.model_dir != None:
-    print("Loading checkpoint from %s" % config.model_dir)
-    model.load_state_dict(torch.load(os.path.join(config.model_dir, "best_model.mdl")), strict=False)
-
 # optimizer
-param_groups = [{'params': model.module.model.parameters(), 'lr': config.learning_rate, 'weight_decay': config.weight_decay}]
+# param_groups = [{'params': model.module.model.parameters(), 'lr': config.learning_rate, 'weight_decay': config.weight_decay}]
 if config.prefix_type == "pip_indirect":
-    prefix_param_groups = [{'params': model.module.linear.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                            {'params': model.module.attention.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                            {'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                            {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
-                            {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
+    prefix_param_groups = [{'params': model.module.linear.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay},
+                            {'params': model.module.attention.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay},
+                            {'params': model.module.control_trans_1.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay},
+                            {'params': model.module.control_trans_3.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, 
+                            {'params': model.module.wte_1.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}]
 if config.prefix_type == "pip_direct":
-    prefix_param_groups = [{'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                            {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
-                            {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
+    prefix_param_groups = [{'params': model.module.control_trans_1.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay},
+                            {'params': model.module.control_trans_3.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, 
+                            {'params': model.module.wte_1.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}]
 elif config.prefix_type == "ptuning":
-    prefix_param_groups = [ {'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                            {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
-                            {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
+    prefix_param_groups = [ {'params': model.module.control_trans_1.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay},
+                            {'params': model.module.control_trans_3.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, 
+                            {'params': model.module.wte_1.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': float(config.prefix_learning_rate), 'weight_decay': config.weight_decay}]
 
-optimizer = AdamW(params=param_groups) #1e-4
 prefix_optimizer = AdamW(params=prefix_param_groups) #1e-4
 
 rouge_eval = rouge.Rouge(metrics=['rouge-1', 'rouge-2', 'rouge-l'])
@@ -320,9 +313,10 @@ for name, param in model.named_parameters():
     if param.requires_grad:
         print(name, param.size()) 
 
-for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
+# for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
+for epoch in range(config.prefix_max_epoch):
     logger.info(log_path)
-    logger.info(f"Epoch {epoch}")
+    logger.info(f"Epoch {epoch + 1}")
     
     train_loader = DataLoader(np.arange(len(train_data)), batch_size=config.train_batch_size, shuffle=True)
     model.train()
@@ -336,8 +330,7 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
         tgt_synts = [train_data[i]["tgt_synt"] for i in train_idxs]
 
         assert config.prefix_type in ["pip_indirect", "pip_direct", "ptuning"]
-        enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-        prefix_idxs = prefix_idxs.to(device)
+        enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
             
         enc_idxs = enc_idxs.to(device)
         enc_attn = enc_attn.to(device)
@@ -351,7 +344,7 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
         
         # forward model
         # loss = model(src_sents, src_synts, tgt_synts, tgt_sents)
-        loss = model(enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
+        loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
         # loss = loss.sum() + prefix_loss.sum() * 1000
 
         avg_loss += loss.item()

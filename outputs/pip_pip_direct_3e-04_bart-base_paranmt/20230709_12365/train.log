@@ -1,0 +1,57 @@
+[2023-07-09 12:36:51] - __main__ - 
+{   'cache_dir': './cache/',
+    'dataset': 'paranmt',
+    'dev_src_sent_file': './dataset/data_300k/para/test/src.txt',
+    'dev_src_synt_file': './dataset/data_300k/para/test/src.parse',
+    'dev_tgt_sent_file': './dataset/data_300k/para/test/tgt.txt',
+    'dev_tgt_synt_file': './dataset/data_300k/para/test/tgt.parse',
+    'eval_batch_size': 64,
+    'gpu_num': 3,
+    'grad_clipping': 1,
+    'max_epoch': 0,
+    'max_src_sent_len': 60,
+    'max_src_synt_len': 260,
+    'max_tgt_sent_len': 60,
+    'max_tgt_synt_len': 200,
+    'model_type': 'pip',
+    'mrpc_src_sent_file': './dataset/data_300k/mrpc/dev/src.txt',
+    'mrpc_src_synt_file': './dataset/data_300k/mrpc/dev/src.parse',
+    'mrpc_tgt_sent_file': './dataset/data_300k/mrpc/dev/tgt.txt',
+    'mrpc_tgt_synt_file': './dataset/data_300k/mrpc/dev/tgt.parse',
+    'num_beams': 4,
+    'output_dir': './outputs/pip_pip_direct_3e-04_bart-base_paranmt/',
+    'pan_src_sent_file': './dataset/data_300k/pan/dev/src.txt',
+    'pan_src_synt_file': './dataset/data_300k/pan/dev/src.parse',
+    'pan_tgt_sent_file': './dataset/data_300k/pan/dev/tgt.txt',
+    'pan_tgt_synt_file': './dataset/data_300k/pan/dev/tgt.parse',
+    'prefix_learning_rate': '3e-04',
+    'prefix_length': 200,
+    'prefix_max_epoch': 10,
+    'prefix_threshold': 4,
+    'prefix_type': 'pip_direct',
+    'pretrained_model': 'facebook/bart-base',
+    'quora_src_sent_file': './dataset/data_300k/quora/dev/src.txt',
+    'quora_src_synt_file': './dataset/data_300k/quora/dev/src.parse',
+    'quora_tgt_sent_file': './dataset/data_300k/quora/dev/tgt.txt',
+    'quora_tgt_synt_file': './dataset/data_300k/quora/dev/tgt.parse',
+    'seed': 0,
+    'sep_token': '<sep>',
+    'train_batch_size': 64,
+    'train_src_sent_file': './dataset/data_300k/para/train/src.txt',
+    'train_src_synt_file': './dataset/data_300k/para/train/src.parse',
+    'train_tgt_sent_file': './dataset/data_300k/para/train/tgt.txt',
+    'train_tgt_synt_file': './dataset/data_300k/para/train/tgt.parse',
+    'use_dec_tgt_parse': False,
+    'use_enc_src_parse': False,
+    'warmup_epoch': 0,
+    'weight_decay': 0}
+[2023-07-09 12:36:52] - utils - loading instances from ./dataset/data_300k/para/train/src.txt, ./dataset/data_300k/para/train/src.parse, ./dataset/data_300k/para/train/tgt.txt, ./dataset/data_300k/para/train/tgt.parse
+[2023-07-09 12:36:53] - utils - load 300/300 instances
+[2023-07-09 12:36:53] - utils - loading instances from ./dataset/data_300k/para/test/src.txt, ./dataset/data_300k/para/test/src.parse, ./dataset/data_300k/para/test/tgt.txt, ./dataset/data_300k/para/test/tgt.parse
+[2023-07-09 12:36:53] - utils - load 300/300 instances
+[2023-07-09 12:36:53] - utils - loading instances from ./dataset/data_300k/pan/dev/src.txt, ./dataset/data_300k/pan/dev/src.parse, ./dataset/data_300k/pan/dev/tgt.txt, ./dataset/data_300k/pan/dev/tgt.parse
+[2023-07-09 12:36:54] - utils - load 300/300 instances
+[2023-07-09 12:36:54] - utils - loading instances from ./dataset/data_300k/mrpc/dev/src.txt, ./dataset/data_300k/mrpc/dev/src.parse, ./dataset/data_300k/mrpc/dev/tgt.txt, ./dataset/data_300k/mrpc/dev/tgt.parse
+[2023-07-09 12:36:54] - utils - load 300/300 instances
+[2023-07-09 12:36:54] - utils - loading instances from ./dataset/data_300k/quora/dev/src.txt, ./dataset/data_300k/quora/dev/src.parse, ./dataset/data_300k/quora/dev/tgt.txt, ./dataset/data_300k/quora/dev/tgt.parse
+[2023-07-09 12:36:55] - utils - load 300/300 instances

@@ -1,4 +1,4 @@
-CONFIG='./config/pip.jsonnet'
+CONFIG='./config/pip_direct.jsonnet'
 # GPU=${2:-0}
 
 # export CUDA_VISIBLE_DEVICES=$GPU

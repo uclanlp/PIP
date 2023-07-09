@@ -5,6 +5,7 @@ local data_dir = "./dataset/data_300k";
 local use_enc_src_parse = false;
 local use_dec_tgt_parse = false;
 local prefix_type = "pip_direct";
+local prefix_learning_rate = "3e-04"; 
 
 local model_name_map = {
     "facebook/bart-base": "bart-base", 
@@ -46,13 +47,12 @@ local model_name_map = {
     "use_enc_src_parse": use_enc_src_parse, 
     "use_dec_tgt_parse": use_dec_tgt_parse, 
     "warmup_epoch": 0, 
-    "max_epoch": 0, 
     "prefix_max_epoch": 10, 
     "prefix_length": 200,
     "prefix_threshold": 4,
     "train_batch_size": 64, 
     "eval_batch_size": 64, 
-    "prefix_learning_rate": 3e-04, 
+    "prefix_learning_rate": prefix_learning_rate, 
     "output_dir": "./outputs/%s_%s_%s_%s_%s%s%s/" % [model_type, prefix_type, prefix_learning_rate, model_name_map[pretrained_model], dataset, 
                                             if use_enc_src_parse then "_use-enc-src-parse" else "", 
                                             if use_dec_tgt_parse then "_use-dec-tgt-parse" else ""], 

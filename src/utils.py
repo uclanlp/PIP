@@ -12,13 +12,13 @@ def load_special_tokens(file):
 def load_data(src_sent_file, src_synt_file, tgt_sent_file, tgt_synt_file, tokenizer, config):
     logger.info(f"loading instances from {src_sent_file}, {src_synt_file}, {tgt_sent_file}, {tgt_synt_file}")
     with open(src_sent_file) as fp:
-        src_sents = list(map(lambda x: x.strip(), fp.readlines()))[:30000]
+        src_sents = list(map(lambda x: x.strip(), fp.readlines()))[:300]
     with open(src_synt_file) as fp:
-        src_synts = list(map(lambda x: x.strip(), fp.readlines()))[:30000]
+        src_synts = list(map(lambda x: x.strip(), fp.readlines()))[:300]
     with open(tgt_sent_file) as fp:
-        tgt_sents = list(map(lambda x: x.strip(), fp.readlines()))[:30000]
+        tgt_sents = list(map(lambda x: x.strip(), fp.readlines()))[:300]
     with open(tgt_synt_file) as fp:
-        tgt_synts = list(map(lambda x: x.strip(), fp.readlines()))[:30000]
+        tgt_synts = list(map(lambda x: x.strip(), fp.readlines()))[:300]
     20
     assert len(src_sents) == len(src_synts) == len(tgt_synts) == len(tgt_sents)
     data = []

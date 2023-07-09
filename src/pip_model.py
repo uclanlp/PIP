@@ -11,7 +11,6 @@ from transformers.models.bart.modeling_bart import BartEncoder, BaseModelOutput,
 import ipdb
 import math
 from nltk.tree import Tree, ParentedTree
-from calc_prefix_vocab import find_vocab_size
 import pickle
 
 class ParaphraseModel(nn.Module):
@@ -218,16 +217,15 @@ class ParaphraseModel(nn.Module):
     def process_pip_data(self, src_sents, src_synts, tgt_synts, tgt_sents=None):
         # prefix_inputs = [f"{tgt_synt}" for tgt_synt in tgt_synts]
         prefix_inputs = [f"{self.resolve_synt_tok(tgt_synt)}" for tgt_synt in tgt_synts]
-
-        if self.config.prefix_type == "pip_indirect":
+        
+        if self.config.prefix_type in ["pip_indirect", "pip_direct"]:
             prefix_inputs = self.prefix_tokenizer(prefix_inputs, return_tensors='pt', max_length = self.config.prefix_length, padding='max_length')
             prefix_inputs = prefix_inputs['input_ids'].to(self.device)
 
             # for encoder output PIP
             enc_outputs = self.model.model.encoder(prefix_inputs,output_hidden_states=True)
             self.enc_outputs = enc_outputs.last_hidden_state.to(self.device)
-        
-        if self.config.prefix_type in ["pip_indirect", "pip_direct"]:
+
             prefix_inputs = self.prefix_ids.expand(len(prefix_inputs), -1) # for prefix tuning
 
             prefix_inputs = prefix_inputs.to(torch.long)
