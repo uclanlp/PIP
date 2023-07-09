@@ -71,17 +71,8 @@ def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, 
             tgt_sents = [eval_data[i]["tgt_sent"] for i in eval_idxs]
             tgt_synts = [eval_data[i]["tgt_synt"] for i in eval_idxs]
             
-            if config.model_type == "prompt":
-                enc_idxs, prefix_inputs, enc_attn, prefix_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-                prefix_inputs = prefix_inputs.to(device)
-                prefix_attn = prefix_attn.to(device)
-            elif config.pretrained_model == "facebook/bart-base" and config.model_type in ["pip", "prefix_reg"]:
-                if config.prefix_type in ["attention", "attention0", "ptuning", "causal_attention", "attention2", "attention3", "attention3_1", "cross_attention"]:
-                    enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-                elif config.prefix_type == "graph_attention":
-                    enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_graph_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-            elif config.pretrained_model == "gpt2":
-                enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
+            assert config.prefix_type in ["attention0", "attention0_direct", "ptuning"]
+            enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
             
             enc_idxs = enc_idxs.to(device)
             enc_attn = enc_attn.to(device)
@@ -89,26 +80,19 @@ def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, 
             dec_attn = dec_attn.to(device)
             lbl_idxs = lbl_idxs.to(device)
 
-            if config.pretrained_model == "facebook/bart-base" and config.model_type in ["pip", "prefix_reg"]:
-                for key in prefix_dict.keys():
-                    prefix_dict[key][0].to(device)
-                    prefix_dict[key][1].to(device)
-            elif config.pretrained_model == "gpt2":
-                prefix = (prefix[0].to(device), prefix[1].to(device))
+            assert config.pretrained_model == "facebook/bart-base"
+            assert config.model_type == "pip"
+            for key in prefix_dict.keys():
+                prefix_dict[key][0].to(device)
+                prefix_dict[key][1].to(device)
             
             # forard model
             # loss = model(src_sents, src_synts, tgt_synts, tgt_sents)
-            if config.model_type == "prompt":
-                loss = model(enc_idxs, prefix_inputs.to(torch.long), enc_attn, prefix_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-            elif config.pretrained_model == "facebook/bart-base" and config.model_type in ["pip", "prefix_reg"]:
-                loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
+            loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
 
             avg_loss += loss.item()
 
-            if config.model_type == "prompt":
-                outputs = model.module.generate(enc_idxs, prefix_inputs.to(torch.long), enc_attn, prefix_attn, prefix_dict)
-            elif config.pretrained_model == "facebook/bart-base" and config.model_type in ["pip", "prefix_reg"]:
-                outputs = model.module.generate(enc_idxs, enc_attn, prefix_dict, config.num_beams)
+            outputs = model.module.generate(enc_idxs, enc_attn, prefix_dict, config.num_beams)
             print('outputs', outputs[0])
             eval_outputs.extend(outputs)
             

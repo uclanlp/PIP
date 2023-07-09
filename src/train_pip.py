@@ -237,12 +237,13 @@ if config.model_dir != None:
 # optimizer
 param_groups = [{'params': model.module.model.parameters(), 'lr': config.learning_rate, 'weight_decay': config.weight_decay}]
 if config.prefix_type == "attention0":
-    prefix_param_groups = [ # # {'params': [model.module.mu], 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                            # {'params': model.module.linear.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                            # {'params': model.module.attention.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                            # # {'params': model.module.linear_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},{'params': model.module.linear_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
-                            # # {'params': model.module.attention.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+    prefix_param_groups = [{'params': model.module.linear.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+                            {'params': model.module.attention.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
                             {'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
+                            {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
+                            {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
+if config.prefix_type == "attention0_direct":
+    prefix_param_groups = [{'params': model.module.control_trans_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.control_trans_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay},
                             {'params': model.module.control_trans_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, 
                             {'params': model.module.wte_1.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_2.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}, {'params': model.module.wte_3.parameters(), 'lr': config.prefix_learning_rate, 'weight_decay': config.weight_decay}]
 elif config.prefix_type == "ptuning":
@@ -257,16 +258,11 @@ rouge_eval = rouge.Rouge(metrics=['rouge-1', 'rouge-2', 'rouge-l'])
 
 # Set Prefix Tuning Parameters
 if config.prefix_type == "attention0":
-    # # for cos sim loss for enc
-    # for param in model.module.linear.parameters():
-    #     param.requires_grad = True
-    # for param in model.module.attention.parameters():
-    #     param.requires_grad = True
-    # # for cos sim loss for enc+dec
-    # # for param in model.module.linear_1.parameters():
-    # #     param.requires_grad = True
-    # # for param in model.module.linear_2.parameters():
-    # #     param.requires_grad = True
+    # for cos sim loss for enc
+    for param in model.module.linear.parameters():
+        param.requires_grad = True
+    for param in model.module.attention.parameters():
+        param.requires_grad = True
     for param in model.module.wte_1.parameters():
         param.requires_grad = True
     for param in model.module.wte_2.parameters():
@@ -279,6 +275,21 @@ if config.prefix_type == "attention0":
         param.requires_grad = True
     for param in model.module.control_trans_3.parameters():
         param.requires_grad = True
+
+if config.prefix_type == "attention0_direct":
+    for param in model.module.wte_1.parameters():
+        param.requires_grad = True
+    for param in model.module.wte_2.parameters():
+        param.requires_grad = True
+    for param in model.module.wte_3.parameters():
+        param.requires_grad = True
+    for param in model.module.control_trans_1.parameters():
+        param.requires_grad = True
+    for param in model.module.control_trans_2.parameters():
+        param.requires_grad = True
+    for param in model.module.control_trans_3.parameters():
+        param.requires_grad = True
+
 elif config.prefix_type == "ptuning":
     for param in model.module.wte_1.parameters():
         param.requires_grad = True
@@ -305,50 +316,6 @@ logger.info("** {:.2f}M parameters **".format(sum(p.numel() for p in model.param
 logger.info("** {:.2f}M ({:.2f}K) learnable parameters **".format(sum(p.numel() for p in model.parameters() if p.requires_grad)/1000000.0, 
                                                         sum(p.numel() for p in model.parameters() if p.requires_grad)/1000.0))
 
-# bart_model = BartParaphraseModel(config, tokenizer, device).to(device)
-# prefix_config = PrefixTuningConfig(flat=False, prefix_length=config.prefix_length)
-# bart_model.model.add_adapter("prefix_tuning", config=prefix_config)
-# bart_model.model.train_adapter("prefix_tuning")
-# state_dict = bart_model.state_dict()
-# new_state_dict_1 = state_dict.copy()
-# new_state_dict_2 = state_dict.copy()
-# new_state_dict_3 = state_dict.copy()
-# for k, v in state_dict.items():
-#     if 'prefix_tuning' not in k and k in new_state_dict_1.keys():
-#         new_state_dict_1.pop(k)
-#         new_state_dict_2.pop(k)
-#         new_state_dict_3.pop(k)
-#     elif 'encoder_prefix.control_trans' in k:
-#         new_state_dict_1[k.replace('model.model.encoder.layers.0.self_attn.prefix_tuning.pool.prefix_tunings.prefix_tuning.encoder_prefix.control_trans.','')] = v # module.control_trans_1
-#         new_state_dict_1.pop(k)
-#         new_state_dict_2.pop(k)
-#         new_state_dict_3.pop(k)
-#     elif 'cross_prefix.control_trans' in k:
-#         new_state_dict_2[k.replace('model.model.encoder.layers.0.self_attn.prefix_tuning.pool.prefix_tunings.prefix_tuning.cross_prefix.control_trans.','')] = v # module.control_trans_2
-#         new_state_dict_2.pop(k)
-#         new_state_dict_1.pop(k)
-#         new_state_dict_3.pop(k)
-#     elif 'self_prefix.control_trans' in k:
-#         new_state_dict_3[k.replace('model.model.encoder.layers.0.self_attn.prefix_tuning.pool.prefix_tunings.prefix_tuning.self_prefix.control_trans.','')] = v # module.control_trans_2
-#         new_state_dict_3.pop(k)
-#         new_state_dict_1.pop(k)
-#         new_state_dict_2.pop(k)
-#     else:
-#         new_state_dict_1.pop(k)
-#         new_state_dict_2.pop(k)
-#         new_state_dict_3.pop(k)
-
-# bart_model = bart_model.cpu()
-# del bart_model
-# del state_dict
-# model.module.control_trans.load_state_dict(new_state_dict_1)
-# model.module.control_trans_1.load_state_dict(new_state_dict_1)
-# model.module.control_trans_2.load_state_dict(new_state_dict_2)
-# model.module.control_trans_3.load_state_dict(new_state_dict_3)
-# del new_state_dict_1
-# del new_state_dict_2
-# del new_state_dict_3
-
 for name, param in model.named_parameters():
     if param.requires_grad:
         print(name, param.size()) 
@@ -368,7 +335,7 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
         tgt_sents = [train_data[i]["tgt_sent"] for i in train_idxs]
         tgt_synts = [train_data[i]["tgt_synt"] for i in train_idxs]
 
-        assert config.prefix_type in ["attention0", "ptuning"]
+        assert config.prefix_type in ["attention0", "attention0_direct", "ptuning"]
         enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
         prefix_idxs = prefix_idxs.to(device)
             
@@ -394,12 +361,12 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
         # stop grad clipping
         if config.prefix_type == "attention0":
             prefix_params = []
-            # for added attention
-            # # for m in [model.module.wte.parameters(), model.module.k_proj.parameters(), model.module.q_proj.parameters(), model.module.v_proj.parameters(), model.module.attention.parameters(), model.module.control_trans.parameters(), model.module.control_trans_1.parameters(), model.module.control_trans_2.parameters(), model.module.control_trans_3.parameters()]:
-            # # for m in [model.module.linear.parameters(),model.module.wte_1.parameters(),model.module.wte_2.parameters(),model.module.wte_3.parameters(), model.module.attention.parameters(), # for cos sim loss for enc
-            # for m in [model.module.linear.parameters(),model.module.attention.parameters(),model.module.wte_1.parameters(),model.module.wte_2.parameters(),model.module.wte_3.parameters(),
-            # # for m in [model.module.linear_1.parameters(),model.module.linear_2.parameters(),model.module.wte_1.parameters(),model.module.wte_2.parameters(),model.module.wte_3.parameters(),
-            # # for m in [model.module.attention.parameters(), 
+            for m in [model.module.linear.parameters(),model.module.attention.parameters(),model.module.wte_1.parameters(),model.module.wte_2.parameters(),model.module.wte_3.parameters(),
+                model.module.control_trans_1.parameters(), model.module.control_trans_2.parameters(), model.module.control_trans_3.parameters()]:
+                prefix_params += [param for param in m]
+            torch.nn.utils.clip_grad_norm_(prefix_params, config.grad_clipping)
+        if config.prefix_type == "attention0_direct":
+            prefix_params = []
             for m in [model.module.wte_1.parameters(),model.module.wte_2.parameters(),model.module.wte_3.parameters(),
                 model.module.control_trans_1.parameters(), model.module.control_trans_2.parameters(), model.module.control_trans_3.parameters()]:
                 prefix_params += [param for param in m]

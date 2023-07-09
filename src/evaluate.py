@@ -144,10 +144,6 @@ device_ids = [i for i in range(config.gpu_num)]
 # initialize the model
 if config.model_type == "seq2seq":
     model = ParaphraseModel(config, tokenizer, device).to(device)
-elif config.model_type == "aesop":
-    config.use_enc_src_parse = True
-    config.use_dec_tgt_parse = True
-    model = ParaphraseModel(config, tokenizer, device).to(device)
 
 model = nn.DataParallel(model, device_ids)
 
