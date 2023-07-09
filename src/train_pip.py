@@ -375,11 +375,8 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
             prefix_attn = prefix_attn.to(device)
         elif config.model_type == "pip":
             assert config.prefix_type in ["attention0", "ptuning"]
-            if config.dec == False:
-                enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-            else:
-                enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-                prefix_idxs = prefix_idxs.to(device)
+            enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
+            prefix_idxs = prefix_idxs.to(device)
             
         enc_idxs = enc_idxs.to(device)
         enc_attn = enc_attn.to(device)
@@ -394,11 +391,7 @@ for epoch in range(config.max_epoch+1, config.prefix_max_epoch+1):
         
         # forward model
         # loss = model(src_sents, src_synts, tgt_synts, tgt_sents)
-        if config.dec == False:
-            loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-        else:
-            loss = model(enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-        # loss, prefix_loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict)
+        loss = model(enc_idxs, prefix_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
         # loss = loss.sum() + prefix_loss.sum() * 1000
 
         avg_loss += loss.item()

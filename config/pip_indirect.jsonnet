@@ -65,5 +65,4 @@ local model_name_map = {
     "grad_clipping": 1.0, 
     "num_beams": 4, 
     "sep_token": "<sep>", 
-    "dec": false,
 }
