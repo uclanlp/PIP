@@ -2,3 +2,5 @@ __pycache__/
 *.ipynb_checkpoints/
 apps
 /src/evaluation/apps
+/outputs
+/src/evaluation/.DS_Store
