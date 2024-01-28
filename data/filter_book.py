@@ -1,5 +1,5 @@
 import os, logging, pprint, json
-import evaluate
+import evaluate_seq2seq
 from tqdm import tqdm
 from argparse import ArgumentParser, Namespace
 import ipdb

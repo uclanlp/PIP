@@ -15,7 +15,7 @@ local model_name_map = {
 {
     "dataset": dataset, 
 	"seed": 0, 
-    "gpu_num": 3,
+    "gpu_num": 4,
 	"model_type": model_type, 
 	"pretrained_model": pretrained_model,
     "prefix_type": prefix_type,

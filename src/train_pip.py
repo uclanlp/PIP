@@ -7,7 +7,7 @@ import torch.nn as nn
 from transformers import BartTokenizer, GPT2Tokenizer, AdamW, get_linear_schedule_with_warmup, BertTokenizer
 from argparse import ArgumentParser, Namespace
 from tqdm import tqdm
-from pip_model import ParaphraseModel
+from pip_model import PrefixParaphraseModel
 from utils import load_data, load_special_tokens
 # from evaluation.eval_utils import Meteor
 import ipdb
@@ -225,7 +225,7 @@ device_ids = [i for i in range(config.gpu_num)]
 
 # initialize the model
 assert config.pretrained_model == "facebook/bart-base"
-model = ParaphraseModel(config, tokenizer, device).to(device)
+model = PrefixParaphraseModel(config, tokenizer, device).to(device)
 model = nn.DataParallel(model, device_ids)
 
 # optimizer
@@ -354,8 +354,9 @@ for epoch in range(config.prefix_max_epoch):
         # stop grad clipping
         if config.prefix_type == "pip_indirect":
             prefix_params = []
-            for m in [model.module.linear.parameters(),model.module.attention.parameters(),model.module.wte_1.parameters(),model.module.wte_2.parameters(),model.module.wte_3.parameters(),
-                model.module.control_trans_1.parameters(), model.module.control_trans_2.parameters(), model.module.control_trans_3.parameters()]:
+            for m in [model.module.linear.parameters(),model.module.attention.parameters(),model.module.wte_1.parameters(),model.module.wte_2.parameters(), 
+                      model.module.wte_3.parameters(),model.module.control_trans_1.parameters(), model.module.control_trans_2.parameters(), 
+                      model.module.control_trans_3.parameters()]:
                 prefix_params += [param for param in m]
             torch.nn.utils.clip_grad_norm_(prefix_params, config.grad_clipping)
         if config.prefix_type == "pip_direct":

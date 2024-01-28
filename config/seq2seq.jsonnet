@@ -1,10 +1,9 @@
 local dataset = "paranmt";
-local model_type = "pip";
+local model_type = "seq2seq";
 local pretrained_model = "facebook/bart-base";
 local data_dir = "./dataset/data_300k";
 local use_enc_src_parse = false;
 local use_dec_tgt_parse = false;
-local prefix_type = "ptuning";
 
 local model_name_map = {
     "facebook/bart-base": "bart-base", 
@@ -14,10 +13,9 @@ local model_name_map = {
 {
     "dataset": dataset, 
 	"seed": 0, 
-    "gpu_num": 3,
+    "gpu_num": 4,
 	"model_type": model_type, 
 	"pretrained_model": pretrained_model,
-    "prefix_type": prefix_type,
     "cache_dir": "./cache/", 
     "train_src_sent_file": "%s/para/train/src.txt" % [data_dir], 
     "train_src_synt_file": "%s/para/train/src.parse" % [data_dir], 
@@ -46,14 +44,11 @@ local model_name_map = {
     "use_enc_src_parse": use_enc_src_parse, 
     "use_dec_tgt_parse": use_dec_tgt_parse, 
     "warmup_epoch": 0, 
-    "max_epoch": 0, 
-    "prefix_max_epoch": 10, 
-    "prefix_length": 200,
-    "prefix_threshold": 4,
-    "train_batch_size": 64, 
-    "eval_batch_size": 64, 
+    "max_epoch": 10,
+    "train_batch_size": 32, 
+    "eval_batch_size": 32, 
     "learning_rate": 3e-05, 
-    "output_dir": "./outputs/%s_%s_%s_%s_%s%s%s/" % [model_type, prefix_type, learning_rate, model_name_map[pretrained_model], dataset, 
+    "output_dir": "./outputs/%s_%s_%s_%s%s%s/" % [model_type, learning_rate, model_name_map[pretrained_model], dataset, 
                                             if use_enc_src_parse then "_use-enc-src-parse" else "", 
                                             if use_dec_tgt_parse then "_use-dec-tgt-parse" else ""], 
     "weight_decay": 0.0, 

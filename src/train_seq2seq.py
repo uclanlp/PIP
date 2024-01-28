@@ -4,13 +4,12 @@ import torch
 import rouge
 from torch.utils.data import DataLoader
 import torch.nn as nn
-from transformers import BartTokenizer, GPT2Tokenizer, AdamW, get_linear_schedule_with_warmup, BertTokenizer
+from transformers import BartTokenizer, AdamW, get_linear_schedule_with_warmup
 from argparse import ArgumentParser, Namespace
 from tqdm import tqdm
-from pip_model import PrefixParaphraseModel
+from model import ParaphraseModel #, SynPG
 from utils import load_data, load_special_tokens
 # from evaluation.eval_utils import Meteor
-from transformers.adapters import PrefixTuningConfig
 import ipdb
 
 # configuration
@@ -30,9 +29,6 @@ random.seed(0)
 np.random.seed(config.seed)
 torch.manual_seed(config.seed)
 torch.backends.cudnn.enabled = False
-
-# set GPU device
-#torch.cuda.set_device(config.gpu_device)
 
 # logger and summarizer
 timestamp = time.strftime('%Y%m%d_%H%M%S%f', time.localtime())[:-3]
@@ -57,8 +53,7 @@ def run_multi_bleu(input_file, reference_file):
     bleu = float(bleu_output.strip().split("\n")[-1].split(",")[0].split("=")[1][1:])
     return bleu
 
-
-def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, mode, show=True):
+def evaluate(epoch, model, eval_data, meteor_eval, rouge_eval, output_dir, config, mode, show=True):
     model.eval()
     avg_loss = 0.0
     eval_outputs = []
@@ -71,28 +66,19 @@ def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, 
             tgt_sents = [eval_data[i]["tgt_sent"] for i in eval_idxs]
             tgt_synts = [eval_data[i]["tgt_synt"] for i in eval_idxs]
             
-            assert config.prefix_type in ["pip_indirect", "pip_direct", "ptuning"]
-            enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict = model.module.process_pip_data(src_sents, src_synts, tgt_synts, tgt_sents)
-            
+            enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs = model.module.process_data(src_sents, src_synts, tgt_synts, tgt_sents)
+
             enc_idxs = enc_idxs.to(device)
             enc_attn = enc_attn.to(device)
             dec_idxs = dec_idxs.to(device)
             dec_attn = dec_attn.to(device)
             lbl_idxs = lbl_idxs.to(device)
 
-            assert config.pretrained_model == "facebook/bart-base"
-            assert config.model_type == "pip"
-            for key in prefix_dict.keys():
-                prefix_dict[key][0].to(device)
-                prefix_dict[key][1].to(device)
-            
-            # forard model
-            # loss = model(src_sents, src_synts, tgt_synts, tgt_sents)
-            loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs, prefix_dict).sum()
-
+            # forward model
+            loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs).sum()
             avg_loss += loss.item()
 
-            outputs = model.module.generate(enc_idxs, enc_attn, prefix_dict, config.num_beams)
+            outputs = model.module.generate(enc_idxs, enc_attn)
             print('outputs', outputs[0])
             eval_outputs.extend(outputs)
             
@@ -104,44 +90,30 @@ def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, 
     with open(pred_file, "w") as fp:
         for eval_output in eval_outputs:
             fp.write(eval_output+"\n")
-
     gold_file = os.path.join(output_dir, f"{mode}_gold.txt")
     with open(gold_file, "w") as fp:
         for eval_targ in eval_targs:
             fp.write(eval_targ+"\n")
             
-    # meteor, rouge1, rouge2, rougel = [], [], [], []
-    # for eval_targ, eval_output in zip(eval_targs, eval_outputs):
-    #     ms = meteor_eval._score(eval_output, [eval_targ])
-    #     rs = rouge_eval.get_scores([eval_output], [eval_targ])
-    #     meteor.append(ms)
-    #     rouge1.append(rs['rouge-1'][0]['f'][0])
-    #     rouge2.append(rs['rouge-2'][0]['f'][0])
-    #     rougel.append(rs['rouge-l'][0]['f'][0])
-
     rouge1, rouge2, rougel = [], [], []
     for eval_targ, eval_output in zip(eval_targs, eval_outputs):
-        rs = rouge_eval.get_scores([eval_output], [eval_targ])
-        rouge1.append(rs[0]['rouge-1']['f'])
-        rouge2.append(rs[0]['rouge-2']['f'])
-        rougel.append(rs[0]['rouge-l']['f'])
+        if len(eval_output) >= 1:
+            rs = rouge_eval.get_scores([eval_output], [eval_targ])
+            # print(rs[0]['rouge-1'].keys())
+            rouge1.append(rs[0]['rouge-1']['f'])
+            rouge2.append(rs[0]['rouge-2']['f'])
+            rougel.append(rs[0]['rouge-l']['f'])
 
-    print(outputs[0])
-    if len(outputs[0]) >= 1:
-        bleu_score = run_multi_bleu(pred_file, gold_file)
-    else:
-        bleu_score = 0
     eval_scores = {"loss": avg_loss, 
-                   "bleu": bleu_score, 
+                   "bleu": run_multi_bleu(pred_file, gold_file), 
                    "rouge1": np.mean(rouge1)*100.0, 
                    "rouge2": np.mean(rouge2)*100.0, 
                    "rougel": np.mean(rougel)*100.0}
                    # "meteor": np.mean(meteor)*100.0, 
                    
-    
     if show:
         print("-------------------------------------------------------")
-        print(f"{mode.capitalize()}")
+        print(f"Epoch {epoch} {mode.capitalize()}")
         print("-------------------------------------------------------")
         print("LOSS:   {:6.3f}    BLEU:    {:5.2f}".format(eval_scores["loss"], eval_scores["bleu"]))
         # print("LOSS:   {:6.3f}    BLEU:    {:5.2f}    METEOR:  {:5.2f}".format(eval_scores["loss"], eval_scores["bleu"], eval_scores["meteor"]))
@@ -149,13 +121,11 @@ def evaluate_pip(model, eval_data, meteor_eval, rouge_eval, output_dir, config, 
         print("-------------------------------------------------------")
     
     return eval_scores, eval_outputs
-    
+            
 tokenizer = BartTokenizer.from_pretrained(config.pretrained_model, cache_dir=config.cache_dir)
-    
 tokenizer.add_tokens([config.sep_token])
-prefix_tokenizer = BertTokenizer.from_pretrained("bert-base-cased")
 
-# train_data = load_data(config.train_src_sent_file, config.train_src_synt_file, config.train_tgt_sent_file, config.train_tgt_synt_file, tokenizer, config)
+train_data = load_data(config.train_src_sent_file, config.train_src_synt_file, config.train_tgt_sent_file, config.train_tgt_synt_file, tokenizer, config)
 dev_data = load_data(config.dev_src_sent_file, config.dev_src_synt_file, config.dev_tgt_sent_file, config.dev_tgt_synt_file, tokenizer, config)
 pan_data = load_data(config.pan_src_sent_file, config.pan_src_synt_file, config.pan_tgt_sent_file, config.pan_tgt_synt_file, tokenizer, config)
 mrpc_data = load_data(config.mrpc_src_sent_file, config.mrpc_src_synt_file, config.mrpc_tgt_sent_file, config.mrpc_tgt_synt_file, tokenizer, config)
@@ -163,48 +133,92 @@ quora_data = load_data(config.quora_src_sent_file, config.quora_src_synt_file, c
 
 # initialize distributed training
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Using %d GPUs for inferencing" % config.gpu_num)
+print("Using %d GPUs for training" % config.gpu_num)
 device_ids = [i for i in range(config.gpu_num)]
 
 # initialize the model
-if config.pretrained_model == "facebook/bart-base":
-    model = PrefixParaphraseModel(config, tokenizer, prefix_tokenizer, device).to(device)
+model = ParaphraseModel(config, tokenizer, device).to(device)
+
 model = nn.DataParallel(model, device_ids)
 
-if config.model_dir != None:
-    logger.info("Loading checkpoint from %s" % config.model_dir)
-    model.load_state_dict(torch.load(os.path.join(config.model_dir, "best_model.mdl")), strict=False)
-
-# local model_dir = "./outputs/pip_attn30_bert_bart-base_paranmt/20230112_10121";
-#     "model_dir": "./outputs/pip_bart-base_paranmt/20230109_16384/",
-# "./outputs/pip_bert2_bart-base_paranmt/20230110_11212/"
-# "model_dir": "/home/elaine1wan/prefix-control-2/",
+# optimizer
+param_groups = [{'params': model.parameters(), 'lr': config.learning_rate, 'weight_decay': config.weight_decay}]
+optimizer = AdamW(params=param_groups)
+scheduler = get_linear_schedule_with_warmup(optimizer,
+                                            num_warmup_steps=(len(train_data)//config.train_batch_size+(len(train_data)%config.train_batch_size!=0)) * config.warmup_epoch,
+                                            num_training_steps=(len(train_data)//config.train_batch_size+(len(train_data)%config.train_batch_size!=0)) * config.max_epoch)
 
 meteor_eval = None
 rouge_eval = rouge.Rouge(metrics=['rouge-1', 'rouge-2', 'rouge-l'])
 
 # start training
-logger.info("Start inferencing ...")
-dev_scores = {"loss": np.inf, "bleu": 0.0}
-
+logger.info("Start training ...")
 
 logger.info("** {:.2f}M parameters **".format(sum(p.numel() for p in model.parameters())/1000000.0))
 logger.info("** {:.2f}M ({:.2f}K) learnable parameters **".format(sum(p.numel() for p in model.parameters() if p.requires_grad)/1000000.0, 
                                                         sum(p.numel() for p in model.parameters() if p.requires_grad)/1000.0))
 
-# eval dev set
-model.eval()
-dev_scores, dev_outputs = evaluate_pip(model, dev_data, meteor_eval, rouge_eval, output_dir, config, "dev")
-logger.info({"dev_loss": dev_scores})
+best_dev_scores = {"loss": np.inf, "bleu": 0.0}
+best_dev_epoch = -1
+for epoch in range(1, config.max_epoch+1):
+    logger.info(log_path)
+    logger.info(f"Epoch {epoch}")
+    
+    train_loader = DataLoader(np.arange(len(train_data)), batch_size=config.train_batch_size, shuffle=True)
+    
+    model.train()
+    
+    avg_loss = 0.0
+    
+    for bid, train_idxs in tqdm(enumerate(train_loader), total=len(train_loader), ncols=100, ascii=True):
 
-# eval test set
-pan_scores, pan_outputs = evaluate_pip(model, pan_data, meteor_eval, rouge_eval, output_dir, config, "test_pan")
-mrpc_scores, mrpc_outputs = evaluate_pip(model, mrpc_data, meteor_eval, rouge_eval, output_dir, config, "test_mrpc")
-quora_scores, quora_outputs = evaluate_pip(model, quora_data, meteor_eval, rouge_eval, output_dir, config, "test_quora")
-logger.info({"pan_scores": pan_scores})
-logger.info({"mrpc_scores": mrpc_scores})
-logger.info({"quora_scores": quora_scores})
-logger.info({"dev_scores": dev_scores})
+        src_sents = [train_data[i]["src_sent"] for i in train_idxs]
+        src_synts = [train_data[i]["src_synt"] for i in train_idxs]
+        tgt_sents = [train_data[i]["tgt_sent"] for i in train_idxs]
+        tgt_synts = [train_data[i]["tgt_synt"] for i in train_idxs]
 
+        enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs = model.module.process_data(src_sents, src_synts, tgt_synts, tgt_sents)
+
+        enc_idxs = enc_idxs.to(device)
+        enc_attn = enc_attn.to(device)
+        dec_idxs = dec_idxs.to(device)
+        dec_attn = dec_attn.to(device)
+        lbl_idxs = lbl_idxs.to(device)
+    
+        # forward model
+        loss = model(enc_idxs, enc_attn, dec_idxs, dec_attn, lbl_idxs).sum()
+        avg_loss += loss.item()
+        
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clipping)
+        optimizer.step()
+        scheduler.step()
+        
+    avg_loss /= len(train_loader)
+    print(f"Loss: {avg_loss}")
+    
+    # eval dev set
+    model.eval()
+    dev_scores, dev_outputs = evaluate(epoch, model, dev_data, meteor_eval, rouge_eval, output_dir, config, "dev")
+    logger.info({"epoch": epoch, "dev_loss": dev_scores})
+    
+    if dev_scores["bleu"] > best_dev_scores["bleu"]:
+        logger.info(f"Saving best model to {os.path.join(output_dir, 'best_model.mdl')}")
+        torch.save(model.state_dict(), os.path.join(output_dir, "best_model.mdl"))
+        best_dev_scores = dev_scores
+        best_dev_epoch = epoch
+        
+        # eval test set
+        pan_scores, pan_outputs = evaluate(epoch, model, pan_data, meteor_eval, rouge_eval, output_dir, config, "test_pan")
+        mrpc_scores, mrpc_outputs = evaluate(epoch, model, mrpc_data, meteor_eval, rouge_eval, output_dir, config, "test_mrpc")
+        quora_scores, quora_outputs = evaluate(epoch, model, quora_data, meteor_eval, rouge_eval, output_dir, config, "test_quora")
+        logger.info({"epoch": epoch, "pan_scores": pan_scores})
+        logger.info({"epoch": epoch, "mrpc_scores": mrpc_scores})
+        logger.info({"epoch": epoch, "quora_scores": quora_scores})
+    
+    logger.info("Current best")
+    logger.info({"best_epoch": best_dev_epoch, "best_scores": best_dev_scores})
+        
 logger.info(log_path)
 logger.info("Done!")

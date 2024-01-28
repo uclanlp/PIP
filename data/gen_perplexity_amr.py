@@ -1,5 +1,5 @@
 import os, logging, pprint, json
-import evaluate
+import evaluate_seq2seq
 from tqdm import tqdm
 from argparse import ArgumentParser, Namespace
 import ipdb
@@ -22,7 +22,7 @@ with open(args.input) as fp:
     lines = fp.readlines()
 
     
-perplexity = evaluate.load("perplexity", module_type="metric")
+perplexity = evaluate_seq2seq.load("perplexity", module_type="metric")
 
 fp = open(args.output, "a+")
 for line in tqdm(lines[args.start:], ncols=100, ascii=True):

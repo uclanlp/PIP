@@ -13,7 +13,7 @@ import math
 from nltk.tree import Tree, ParentedTree
 import pickle
 
-class ParaphraseModel(nn.Module):
+class PrefixParaphraseModel(nn.Module):
     def __init__(self, config, tokenizer, device, debug=True):
         super().__init__()
         self.config = config
